@@ -1,2 +1,5 @@
 output/
 test-imgs/
+__pycache__/
+openml/
+data/
