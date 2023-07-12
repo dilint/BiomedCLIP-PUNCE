@@ -7,6 +7,20 @@ from sklearn import metrics
 import matplotlib.pyplot as plt
 from datetime import datetime
 
+# 读取位置
+import os
+import json
+
+current_path = os.path.abspath(__file__)
+parent_path = os.path.dirname(os.path.dirname(current_path))
+config_file = os.path.join(parent_path, "config.json")
+
+with open(config_file, "r") as f:
+    config_data = json.load(f)
+
+# 提取所需的值
+root_path = config_data["root_path"]
+
 class Trainer:
   def __init__(self,
                name                   : str,
@@ -364,7 +378,9 @@ class Trainer:
     return result
 
 
-  def _save_checkpoint(self, save_dir='/root/project/biomed-clip-puNCE/Reproduce/mynnPU/checkpoints'):
+  def _save_checkpoint(self, save_dir=root_path+'checkpoints'):
+      if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
       timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
       checkpoint_path = f"{save_dir}/checkpoint_{timestamp}.pth"
       

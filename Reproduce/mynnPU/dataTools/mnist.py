@@ -3,6 +3,21 @@ import torch
 from torchvision.datasets import MNIST, CIFAR10
 from torchvision import transforms
 
+# 读取位置
+import os
+import json
+
+current_path = os.path.abspath(__file__)
+parent_path = os.path.dirname(os.path.dirname(current_path))
+config_file = os.path.join(parent_path, "config.json")
+
+with open(config_file, "r") as f:
+    config_data = json.load(f)
+
+# 提取所需的值
+root_path = config_data["root_path"]
+root_path = root_path+'data'
+
 class PU_MNIST(MNIST):
   def __init__(self, root, n_labels= 1000, train= True, transform= None, target_transform= None, download= False):
     super(PU_MNIST, self).__init__(root, train=train, transform= transform, target_transform= target_transform, download= download)
@@ -51,7 +66,7 @@ class PN_MNIST(MNIST):
     return input, target 
 
 if __name__ == '__main__':
-  pu_mnist = PU_MNIST("/root/project/biomed-clip-puNCE/Reproduce/mynnPU/data", download=False)
+  pu_mnist = PU_MNIST(root_path, download=False)
   print(pu_mnist)
 
 
@@ -64,7 +79,7 @@ import pickle
 from sklearn.datasets import fetch_openml
 
 def get_mnist():
-    mnist = fetch_openml('mnist_784', data_home="/root/project/biomed-clip-puNCE/Reproduce/mynnPU")
+    mnist = fetch_openml('mnist_784', data_home=root_path)
 
     x = mnist.data
     y = mnist.target
@@ -98,7 +113,7 @@ def conv_data2image(data):
     return np.rollaxis(data.reshape((3, 32, 32)), 0, 3)
 
 
-def get_cifar10(path="/root/project/biomed-clip-puNCE/Reproduce/mynnPU/data"):
+def get_cifar10(path=root_path):
     if not os.path.isdir(path):
         os.mkdir(path)
     url = "http://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz"
