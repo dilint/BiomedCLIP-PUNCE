@@ -27,4 +27,5 @@ class MLP(nn.Module):
     return output
 
 if __name__ == '__main__':
+    print(MLP())
     summary(MLP().cuda(), (1,28,28),)

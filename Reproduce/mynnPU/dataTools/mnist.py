@@ -240,8 +240,21 @@ class MNIST_Chainer(torch.utils.data.Dataset):
 
   def __getitem__(self, idx):
     input, target = self.XY[idx]
-    # input, target = self.transform(input), self.transform(target)
     input, target = torch.tensor(input), torch.tensor(target)
     input = input.view(-1)
+    
+    return input, target
+  
+class CIFAR10_Chainer(torch.utils.data.Dataset):
+  def __init__(self, XY: list, transform=None):
+    self.XY = XY
+
+  def __len__(self):
+    return len(self.XY)
+
+  def __getitem__(self, idx):
+    input, target = self.XY[idx]
+    input, target = torch.tensor(input), torch.tensor(target)
+    # input = input.view(-1)
     
     return input, target

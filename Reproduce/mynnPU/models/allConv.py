@@ -57,5 +57,5 @@ class AllConv(nn.Module):
 
 if __name__ == '__main__':
     model = AllConv()
-    # print(model)
+    print(model)
     summary(model.cuda(), (3, 32, 32))

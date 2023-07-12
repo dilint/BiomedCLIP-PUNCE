@@ -24,7 +24,8 @@ class Trainer:
                lr_scheduler           : torch.optim.lr_scheduler = None,
                epochs                 : int = 100, # 100
                epoch                  : int = 0,
-               notebook               : bool = True):
+               notebook               : bool = True,
+               n_gpu                  : int = 1):
   
     self.name             = name 
     self.model            = model
@@ -56,6 +57,15 @@ class Trainer:
 
     self.test1            = []
     self.test2            = []
+
+    self.n_gpu            = n_gpu
+    self.device_ids = [0, 1, 2, 3][:n_gpu]
+      
+    # 指定要用到的设备
+    self.model = torch.nn.DataParallel(self.model, device_ids=self.device_ids)
+    # 模型加载到设备0
+    self.model = self.model.cuda(device=self.device_ids[0])
+    self.device = self.device_ids[0]
     
     
   def run_trainer(self):
