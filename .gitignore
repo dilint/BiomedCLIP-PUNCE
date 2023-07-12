@@ -3,3 +3,4 @@ test-imgs/
 __pycache__/
 openml/
 data/
+checkpoints/

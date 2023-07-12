@@ -1,16 +1,16 @@
 #From https://github.com/cimeister/pu-learning
 import torch
 from torchvision.datasets import MNIST, CIFAR10
+from torchvision import transforms
 
 class PU_MNIST(MNIST):
-  def __init__(self, root, train= True, transform= None, target_transform= None, download= False):
+  def __init__(self, root, n_labels= 1000, train= True, transform= None, target_transform= None, download= False):
     super(PU_MNIST, self).__init__(root, train=train, transform= transform, target_transform= target_transform, download= download)
     self.pos_indices = []
     i = 0
 
-    
     # Save the first 1000 data as P (positive) class
-    while len(self.pos_indices) < 1000:
+    while len(self.pos_indices) < n_labels:
       if self.targets[i] % 2 == 0:
         self.pos_indices.append(i)
       i += 1
@@ -24,13 +24,13 @@ class PU_MNIST(MNIST):
       target = torch.tensor(1)
     else:
       target = torch.tensor(-1)
+    input = input.view(-1)
     return input, target 
 
   def get_prior(self):
     # I assumed it is symbolise in the paper by pi_p = p(Y = +1)
     pos_example = self.targets % 2 == 0
     return torch.sum(pos_example, dtype=torch.float) / len(self.targets)
-
 
 
 class PN_MNIST(MNIST):
@@ -47,10 +47,12 @@ class PN_MNIST(MNIST):
       target = torch.tensor(1)
     else:
       target = torch.tensor(-1)
-
+    input = input.view(-1)
     return input, target 
 
-pu_mnist = PU_MNIST("./data", download=True)
+if __name__ == '__main__':
+  pu_mnist = PU_MNIST("/root/project/biomed-clip-puNCE/Reproduce/mynnPU/data", download=False)
+  print(pu_mnist)
 
 
 ##################-----------------chainer---------------------##################
@@ -62,23 +64,25 @@ import pickle
 from sklearn.datasets import fetch_openml
 
 def get_mnist():
-    mnist = fetch_openml('mnist_784', data_home=".")
+    mnist = fetch_openml('mnist_784', data_home="/root/project/biomed-clip-puNCE/Reproduce/mynnPU")
 
     x = mnist.data
     y = mnist.target
+    x = x.to_numpy()
+    y = y.to_numpy()
     # reshape to (#data, #channel, width, height)
     x = np.reshape(x, (x.shape[0], 1, 28, 28)) / 255.
     x_tr = np.asarray(x[:60000], dtype=np.float32)
-    y_tr = np.asarray(y[:60000], dtype=np.int32)
+    y_tr = np.asarray(y[:60000], dtype=int)
     x_te = np.asarray(x[60000:], dtype=np.float32)
-    y_te = np.asarray(y[60000:], dtype=np.int32)
+    y_te = np.asarray(y[60000:], dtype=int)
     return (x_tr, y_tr), (x_te, y_te)
 
 
 def binarize_mnist_class(y_train, y_test):
-    y_train_bin = np.ones(len(y_train), dtype=np.int32)
+    y_train_bin = np.ones(len(y_train), dtype=int)
     y_train_bin[y_train % 2 == 1] = -1
-    y_test_bin = np.ones(len(y_test), dtype=np.int32)
+    y_test_bin = np.ones(len(y_test), dtype=int)
     y_test_bin[y_test % 2 == 1] = -1
     return y_train_bin, y_test_bin
 
@@ -94,7 +98,7 @@ def conv_data2image(data):
     return np.rollaxis(data.reshape((3, 32, 32)), 0, 3)
 
 
-def get_cifar10(path="./mldata"):
+def get_cifar10(path="/root/project/biomed-clip-puNCE/Reproduce/mynnPU/data"):
     if not os.path.isdir(path):
         os.mkdir(path)
     url = "http://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz"
@@ -156,9 +160,9 @@ def get_cifar10(path="./mldata"):
 
 
 def binarize_cifar10_class(y_train, y_test):
-    y_train_bin = np.ones(len(y_train), dtype=np.int32)
+    y_train_bin = np.ones(len(y_train), dtype=int)
     y_train_bin[(y_train == 2) | (y_train == 3) | (y_train == 4) | (y_train == 5) | (y_train == 6) | (y_train == 7)] = -1
-    y_test_bin = np.ones(len(y_test), dtype=np.int32)
+    y_test_bin = np.ones(len(y_test), dtype=int)
     y_test_bin[(y_test == 2) | (y_test == 3) | (y_test == 4) | (y_test == 5) | (y_test == 6) | (y_test == 7)] = -1
     return y_train_bin, y_test_bin
 
@@ -167,7 +171,7 @@ def make_dataset(dataset, n_labeled, n_unlabeled):
     def make_pu_dataset_from_binary_dataset(x, y, labeled=n_labeled, unlabeled=n_unlabeled):
         labels = np.unique(y)
         positive, negative = labels[1], labels[0]
-        x, y = np.asarray(x, dtype=np.float32), np.asarray(y, dtype=np.int32)
+        x, y = np.asarray(x, dtype=np.float32), np.asarray(y, dtype=int)
         assert(len(x) == len(y))
         perm = np.random.permutation(len(y))
         x, y = x[perm], y[perm]
@@ -187,7 +191,7 @@ def make_dataset(dataset, n_labeled, n_unlabeled):
         xun = x[y == negative]
         x = np.asarray(np.concatenate((xlp, xup, xun), axis=0), dtype=np.float32)
         print(x.shape)
-        y = np.asarray(np.concatenate((np.ones(n_lp), -np.ones(n_u))), dtype=np.int32)
+        y = np.asarray(np.concatenate((np.ones(n_lp), -np.ones(n_u))), dtype=int)
         perm = np.random.permutation(len(y))
         x, y = x[perm], y[perm]
         return x, y, _prior
@@ -195,13 +199,13 @@ def make_dataset(dataset, n_labeled, n_unlabeled):
     def make_pn_dataset_from_binary_dataset(x, y):
         labels = np.unique(y)
         positive, negative = labels[1], labels[0]
-        X, Y = np.asarray(x, dtype=np.float32), np.asarray(y, dtype=np.int32)
+        X, Y = np.asarray(x, dtype=np.float32), np.asarray(y, dtype=int)
         n_p = (Y == positive).sum()
         n_n = (Y == negative).sum()
         Xp = X[Y == positive][:n_p]
         Xn = X[Y == negative][:n_n]
         X = np.asarray(np.concatenate((Xp, Xn)), dtype=np.float32)
-        Y = np.asarray(np.concatenate((np.ones(n_p), -np.ones(n_n))), dtype=np.int32)
+        Y = np.asarray(np.concatenate((np.ones(n_p), -np.ones(n_n))), dtype=int)
         perm = np.random.permutation(len(Y))
         X, Y = X[perm], Y[perm]
         return X, Y
@@ -209,7 +213,7 @@ def make_dataset(dataset, n_labeled, n_unlabeled):
     (x_train, y_train), (x_test, y_test) = dataset
     x_train, y_train, prior = make_pu_dataset_from_binary_dataset(x_train, y_train)
     x_test, y_test = make_pn_dataset_from_binary_dataset(x_test, y_test)
-    print("training:{}".format(x_train.shape))
+    print("training:{} consist of {} labeled positive samples and {} unlabeled samples".format(x_train.shape, n_labeled, n_unlabeled))
     print("test:{}".format(x_test.shape))
     return list(zip(x_train, y_train)), list(zip(x_test, y_test)), prior
 
@@ -226,16 +230,18 @@ def load_dataset(dataset_name, n_labeled, n_unlabeled):
     xy_train, xy_test, prior = make_dataset(((x_train, y_train), (x_test, y_test)), n_labeled, n_unlabeled)
     return xy_train, xy_test, prior
 
+
 class MNIST_Chainer(torch.utils.data.Dataset):
   def __init__(self, XY: list, transform=None):
     self.XY = XY
-    self.transform = transform
 
   def __len__(self):
     return len(self.XY)
 
   def __getitem__(self, idx):
     input, target = self.XY[idx]
+    # input, target = self.transform(input), self.transform(target)
     input, target = torch.tensor(input), torch.tensor(target)
-
+    input = input.view(-1)
+    
     return input, target

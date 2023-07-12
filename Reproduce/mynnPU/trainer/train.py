@@ -5,6 +5,7 @@ import torch
 import numpy as np
 from sklearn import metrics
 import matplotlib.pyplot as plt
+from datetime import datetime
 
 class Trainer:
   def __init__(self,
@@ -57,7 +58,6 @@ class Trainer:
     self.test2            = []
     
     
-
   def run_trainer(self):
 
     if self.notebook:
@@ -74,26 +74,39 @@ class Trainer:
       """Training block"""
       self._train()
 
-      """Validation/Train block (From Chainer) /"""
-      if self.validtrain_Dataloader is not None:
-        self._validateTrain()
+      # """Validation/Train block (From Chainer) /"""
+      # if self.validtrain_Dataloader is not None:
+      #   self._validateTrain()
 
-      """Validation block"""
-      if self.valid_Dataloader is not None:
-        self._validate()
-
-      
+      # """Validation block"""
+      # if self.valid_Dataloader is not None:
+      #   self._validate()
 
       """Learning rate scheduler block"""
-      if self.lr_scheduler is not None:
-        if self.valid_DataLoader is not None and self.lr_scheduler.__class__.__name__ == 'ReduceLROnPlateau':
-            self.lr_scheduler.batch(self.validation_loss[i])  # learning rate scheduler step with validation loss
-        else:
-            self.lr_scheduler.batch()  # learning rate scheduler step
 
+      if self.lr_scheduler is not None:
+        if self.valid_Dataloader is not None and self.lr_scheduler.__class__.__name__ == 'ReduceLROnPlateau':
+            self.lr_scheduler.step(self.validation_loss[i])  # learning rate scheduler step with validation loss
+        else:
+            self.lr_scheduler.step()  # learning rate scheduler step
+
+    self._save_checkpoint()
     progressbar.close()
 
     # return self.train_loss, self.valid_loss, self.train_dice_coef, self.valid_dice_coef,  self.learning_rate
+
+
+  def run_validate(self, save_dir: str):
+      self._load_checkpoint(save_dir)
+      """Validation block"""
+      if self.valid_Dataloader is not None:
+        error = self._validate()
+        accuracy = 1 - error
+        print("The accuracy of this checkpooint is {}".format(accuracy))
+      else:
+        print("Do not have valid dataloader!")
+    # return self.train_loss, self.valid_loss, self.train_dice_coef, self.valid_dice_coef,  self.learning_rate
+
 
   def _train(self):
 
@@ -107,13 +120,11 @@ class Trainer:
     train_batch_ROC   = []
     batch_train_error = (np.zeros(4))
 
-
     batch_iter = tqdm(enumerate(self.train_Dataloader), 'Training', total=len(self.train_Dataloader),
                       leave= False)
     
     for i, data in batch_iter:
       input, target = data
-
       input, target = input.to(self.device), target.to(self.device) # Send to device (GPU or CPU)
 
       self.optimizer.zero_grad() # Set grad to zero
@@ -139,18 +150,12 @@ class Trainer:
       # Error Chainer
       batch_train_error += self._batch_train_error(output, target)
 
-    if self.validtrain_Dataloader is None: 
-
-      self.train_loss.append(np.mean(np.array(train_losses)))
-
-      self.train_ROC_AUC.append(np.mean(train_batch_ROC))
-
-      self.learning_rate.append(self.optimizer.param_groups[0]['lr'])
-
-      # Error Chainer
-      self.train_error.append(self._train_error(batch_train_error))
-
-
+    # if self.validtrain_Dataloader is None: 
+    self.train_loss.append(np.mean(np.array(train_losses)))
+    self.train_ROC_AUC.append(np.mean(train_batch_ROC))
+    self.learning_rate.append(self.optimizer.param_groups[0]['lr'])
+    # Error Chainer
+    self.train_error.append(self._train_error(batch_train_error))
 
     batch_iter.close()
 
@@ -195,17 +200,11 @@ class Trainer:
         # Error Chainer
         batch_train_error += self._batch_train_error(output, target)
 
-
     self.train_loss.append(np.mean(np.array(train_losses)))
-
     self.train_ROC_AUC.append(np.mean(train_batch_ROC))
-
     self.learning_rate.append(self.optimizer.param_groups[0]['lr'])
-
     ##Error Chainer
     self.train_error.append(self._train_error(batch_train_error))
-
-
 
     batch_iter.close()
     
@@ -218,7 +217,7 @@ class Trainer:
     self.model.eval() # evaluation mode
     valid_losses      = [] # accumulate the losses here        
     valid_batch_ROC   = []
-    batch_valid_error = 0
+    iter_valid_error = 0
 
 
     batch_iter = tqdm(enumerate(self.valid_Dataloader), 'Validation', total=len(self.valid_Dataloader),
@@ -231,10 +230,10 @@ class Trainer:
       with torch.no_grad():
         output      = self.model(input)
         output      = output.squeeze()
-        loss,x_out  = self.criterion(output, target)
-        loss_value  = loss.item()
-        valid_losses.append(loss_value)
-        batch_iter.set_description(f'Validation: (loss {loss_value:.4f})')
+        # loss,x_out  = self.criterion(output, target)
+        # loss_value  = loss.item()
+        # valid_losses.append(loss_value)
+        # batch_iter.set_description(f'Validation: (loss {loss_value:.4f})')
 
         # Normalization for ROC (for binary data evaluation/accuracy)
         roc_target = target.cpu().numpy()
@@ -244,19 +243,16 @@ class Trainer:
         ROC = metrics.auc(fpr, tpr)
         valid_batch_ROC.append(ROC)
 
-
         # Error chainer
-        batch_valid_error += self._valid_error(output,target)
-
+        iter_valid_error += self._valid_error(output,target)
 
     self.valid_loss.append(np.mean(np.array(valid_losses)))
-
     self.valid_ROC_AUC.append(np.mean(ROC))
-
     # Error Chainer 
-    self.valid_error.append(batch_valid_error)
-
+    iter_valid_error = float(iter_valid_error) / len(self.valid_Dataloader.dataset)
+    self.valid_error.append(iter_valid_error)
     batch_iter.close()
+    return iter_valid_error
 
   def plot_loss(self, to_save= False):
     plt.figure(figsize=(8, 6), dpi=100)
@@ -324,8 +320,6 @@ class Trainer:
     n_p = (t == 1).sum()
     n_n = (t == -1).sum()
 
-
-
     # True/False Positive/Negative
     t_p = ((h == 1) * (t == 1)).sum()
     t_n = ((h == -1) * (t == -1)).sum()
@@ -334,6 +328,8 @@ class Trainer:
 
     return int(t_p), int(t_n), int(f_p), int(f_n)
 
+
+# 经过推导可以验证 可以通过error_u来推导出大致的正确率
   def _train_error(self, summary):
     prior = self.prior
     t_p, t_u, f_p, f_u = summary
@@ -352,9 +348,34 @@ class Trainer:
 
     h   = h.detach().cpu().numpy()
     t   = t.cpu().numpy()
-
     
-    result = (h != t).sum() / len(t)
+    result = (h != t).sum()
 
     return result
 
+
+  def _save_checkpoint(self, save_dir='/root/project/biomed-clip-puNCE/Reproduce/mynnPU/checkpoints'):
+      timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+      checkpoint_path = f"{save_dir}/checkpoint_{timestamp}.pth"
+      
+      checkpoint = {
+          'model_state_dict': self.model.state_dict(),
+          'optimizer_state_dict': self.optimizer.state_dict(),
+          'epoch': self.epoch
+      }
+      # 使用 torch.save() 将checkpoint保存到文件
+      torch.save(checkpoint, checkpoint_path)
+
+  def _load_checkpoint(self, checkpoint_path):
+      # 使用 torch.load() 加载checkpoint文件
+      checkpoint = torch.load(checkpoint_path)
+      
+      # 从checkpoint中恢复模型和优化器的状态
+      self.model.load_state_dict(checkpoint['model_state_dict'])
+      self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+      self.epoch = checkpoint['epoch']
+      
+
+
+if __name__ == '__main__':
+  pass
