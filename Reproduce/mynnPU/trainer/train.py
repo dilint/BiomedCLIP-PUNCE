@@ -74,7 +74,7 @@ class Trainer:
     self.test2            = []
 
     self.n_gpu            = n_gpu
-    self.device_ids = [0, 1, 2, 3][:n_gpu]
+    self.device_ids = list(range(10))[:n_gpu]
       
     # 指定要用到的设备
     self.model = torch.nn.DataParallel(self.model, device_ids=self.device_ids)
