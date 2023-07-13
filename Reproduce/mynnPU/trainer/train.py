@@ -62,6 +62,7 @@ class Trainer:
 
     self.train_error      = []
     self.valid_error      = []
+    self.valid_acc        = []
 
     self.train_ROC_AUC    = []
     self.valid_ROC_AUC    = []
@@ -89,7 +90,7 @@ class Trainer:
     else:
       from tqdm import tqdm, trange
     
-    progressbar = trange(self.epochs, desc='Progress', leave= False)
+    progressbar = trange(self.epochs-self.epoch, desc='Progress', leave= False)
     
     for i in progressbar:
       """Epoch Counter"""
@@ -101,7 +102,9 @@ class Trainer:
       # """Validation/Train block (From Chainer) /"""
       # if self.validtrain_Dataloader is not None:
       #   self._validateTrain()
-
+      if self.epoch % 10 == 0:
+        self.valid_acc.append(self._validate())
+      
       # """Validation block"""
       # if self.valid_Dataloader is not None:
       #   self._validate()
@@ -124,13 +127,17 @@ class Trainer:
       self._load_checkpoint(save_dir)
       """Validation block"""
       if self.valid_Dataloader is not None:
-        error = self._validate()
-        accuracy = 1 - error
-        print("The accuracy of this checkpooint is {}".format(accuracy))
+        acc = self._validate()
+        print("The accuracy of this checkpooint is {}".format(acc))
       else:
         print("Do not have valid dataloader!")
     # return self.train_loss, self.valid_loss, self.train_dice_coef, self.valid_dice_coef,  self.learning_rate
 
+
+  def run_resume(self, save_dir: str):
+    self._load_checkpoint(save_dir)
+    self.run_trainer()
+    
 
   def _train(self):
 
@@ -276,7 +283,8 @@ class Trainer:
     iter_valid_error = float(iter_valid_error) / len(self.valid_Dataloader.dataset)
     self.valid_error.append(iter_valid_error)
     batch_iter.close()
-    return iter_valid_error
+    accuracy = 1 - iter_valid_error
+    return accuracy
 
   def plot_loss(self, to_save= False):
     plt.figure(figsize=(8, 6), dpi=100)
