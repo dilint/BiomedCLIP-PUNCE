@@ -3,10 +3,31 @@ import random
 from PIL import Image
 from tqdm import tqdm
 
-DATA_ROOT = "D:/Dataset/"
-DATA_PATH = DATA_ROOT+'FNAC-2019/'
-DATA_PREFIXS = ["B", "M"]
-OUTPUT_PATH = DATA_ROOT+'FNAC-CROP/base-data/'
+import json
+
+def main():
+    """主函数"""
+    
+    # 读取配置文件中的根目录
+    DATA_ROOT = "D:/Dataset/"
+    current_file = os.path.dirname(os.path.abspath(__file__))  # 获取当前文件的父目录
+    file_name = current_file + '/../../settings/environment.json'
+    if os.path.exists(file_name):
+        with open(file_name, 'r') as file:
+            info = json.load(file)
+            DATA_ROOT = info["FNAC_DATA_ROOT"]
+            
+    # 定义各种路径 
+    DATA_PATH = DATA_ROOT+'FNAC-2019/'
+    DATA_PREFIXS = ["B", "M"]
+    OUTPUT_PATH = DATA_ROOT+'FNAC-CROP/base-data/'   
+      
+    # 开始分割
+    for data_prefix in DATA_PREFIXS:
+        input_path = os.path.join(DATA_PATH, data_prefix)
+        output_path = os.path.join(OUTPUT_PATH, data_prefix)
+        splitImagesInDirectory(input_path, output_path)
+
 
 def splitImage(image_path, output_path):
     
@@ -48,12 +69,6 @@ def splitImagesInDirectory(path, output_path):
         if filename.endswith(".jpg") or filename.endswith(".jpeg") or filename.endswith(".png"):
             image_path = os.path.join(path, filename)
             splitImage(image_path, output_path)
-
-def main():
-    for data_prefix in DATA_PREFIXS:
-        input_path = os.path.join(DATA_PATH, data_prefix)
-        output_path = os.path.join(OUTPUT_PATH, data_prefix)
-        splitImagesInDirectory(input_path, output_path)
 
 
 if __name__ == "__main__":
