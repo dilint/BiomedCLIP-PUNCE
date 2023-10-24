@@ -4,3 +4,5 @@ __pycache__/
 openml/
 data/
 checkpoints/
+settings/environment.json
+debug/

@@ -3,18 +3,43 @@ import random
 from PIL import Image
 from tqdm import tqdm
 
+import json
 
-DATA_PATH = 'C:\\Users\\11030\\Desktop\\FNAC-2019\\base_data'
-DATA_PREFIXS = ["B", "M"]
-OUTPUT_PATH = '..\\..\\output\\FNAC'
+def main():
+    """主函数"""
+    
+    # 读取配置文件中的根目录
+    DATA_ROOT = "D:/Dataset/"
+    current_file = os.path.dirname(os.path.abspath(__file__))  # 获取当前文件的父目录
+    file_name = current_file + '/../../settings/environment.json'
+    if os.path.exists(file_name):
+        with open(file_name, 'r') as file:
+            info = json.load(file)
+            DATA_ROOT = info["FNAC_DATA_ROOT"]
+            
+    # 定义各种路径 
+    DATA_PATH = DATA_ROOT+'FNAC-2019/'
+    DATA_PREFIXS = ["B", "M"]
+    OUTPUT_PATH = DATA_ROOT+'FNAC-CROP/base-data/'   
+      
+    # 开始分割
+    for data_prefix in DATA_PREFIXS:
+        input_path = os.path.join(DATA_PATH, data_prefix)
+        output_path = os.path.join(OUTPUT_PATH, data_prefix)
+        splitImagesInDirectory(input_path, output_path)
+
 
 def splitImage(image_path, output_path):
-    # 图片路径，和切割后保存的图片路径
-    # 取名为"原名_n".jpg
     
     image = Image.open(image_path)
+    wsi_name = os.path.splitext(os.path.basename(image_path))[0]
+    wsi_name = os.path.basename(os.path.dirname(image_path)) + "_" + wsi_name
+    output_path = os.path.join(output_path, wsi_name)
+    
+    if not os.path.exists(output_path):
+        os.makedirs(output_path)
+        
     width, height = image.size
-    MINIMUM = 10000 # 随机选择的数量
     overlap_rate = 0.5 
     crop_size = 256
     overlap = int(crop_size * overlap_rate)
@@ -23,7 +48,6 @@ def splitImage(image_path, output_path):
     num_horizontal = (width - overlap) // (crop_size - overlap)
     num_vertical = (height - overlap) // (crop_size - overlap)
 
-    cropped_images = []
 
     for i in range(num_horizontal):
         for j in range(num_vertical):
@@ -34,25 +58,11 @@ def splitImage(image_path, output_path):
 
             # 切割图像
             crop = image.crop((left, upper, right, lower))
-            cropped_images.append(crop)
+            tmp_output_path = os.path.join(output_path, f"{i}_{j}.jpg")
+            crop.save(tmp_output_path)
 
-    # 随机选择要保存的图片
-    num_images_to_save = min(MINIMUM, len(cropped_images))
-    selected_image_indexs = random.sample(range(len(cropped_images)), num_images_to_save)
-    selected_image_indexs = sorted(selected_image_indexs)
-    selected_images = [cropped_images[i] for i in selected_image_indexs]
-
-    # 保存切割后的图像
-    image_name = os.path.splitext(os.path.basename(image_path))[0]
-    for index, img in enumerate(selected_images):
-        tmp_output_path = os.path.join(output_path, f"{image_name}_{index}.jpg")
-        img.save(tmp_output_path)
 
 def splitImagesInDirectory(path, output_path):
-    # 检查输出目录是否存在，如果不存在则创建
-    if not os.path.exists(output_path):
-        os.makedirs(output_path)
-
     # 遍历目录中的所有文件
     for filename in tqdm(os.listdir(path)):
         # 检查文件是否为图片
@@ -60,11 +70,6 @@ def splitImagesInDirectory(path, output_path):
             image_path = os.path.join(path, filename)
             splitImage(image_path, output_path)
 
-def main():
-    for data_prefix in DATA_PREFIXS:
-        input_path = os.path.join(DATA_PATH, data_prefix)
-        output_path = os.path.join(OUTPUT_PATH, data_prefix)
-        splitImagesInDirectory(input_path, output_path)
 
 if __name__ == "__main__":
     main()
