@@ -129,18 +129,18 @@ hydra:
   runtime:
     version: 1.3.2
     version_base: '1.1'
-    cwd: /root/project/biomed-clip-puNCE/Reproduce/simclr-cifar10
+    cwd: /root/project/biomed-clip-puNCE/reproduce/simclr-cifar10
     config_sources:
     - path: hydra.conf
       schema: pkg
       provider: hydra
-    - path: /root/project/biomed-clip-puNCE/Reproduce/simclr-cifar10
+    - path: /root/project/biomed-clip-puNCE/reproduce/simclr-cifar10
       schema: file
       provider: main
     - path: ''
       schema: structured
       provider: schema
-    output_dir: /root/project/biomed-clip-puNCE/Reproduce/simclr-cifar10/logs/SimCLR/cifar10
+    output_dir: /root/project/biomed-clip-puNCE/reproduce/simclr-cifar10/logs/SimCLR/cifar10
     choices:
       hydra/env: default
       hydra/callbacks: null
