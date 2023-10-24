@@ -1,0 +1,16 @@
+dataset: cifar10
+data_dir: data
+backbone: resnet18
+projection_dim: 128
+seed: 42
+batch_size: 512
+workers: 16
+epochs: 1000
+log_interval: 50
+optimizer: sgd
+learning_rate: 0.6
+momentum: 0.9
+weight_decay: 1.0e-06
+temperature: 0.5
+finetune_epochs: 100
+load_epoch: 1000
