@@ -3,18 +3,17 @@ from omegaconf import DictConfig
 import logging
 
 import numpy as np
-from PIL import Image
 
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
-from torchvision.datasets import CIFAR10
 from torchvision.models import resnet18, resnet34
 from torchvision import transforms
 
 from models import SimCLR
+from datasets import CIFAR10Pair, CIFAR10PU
 from tqdm import tqdm
 
 
@@ -40,15 +39,6 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-class CIFAR10Pair(CIFAR10):
-    """Generate mini-batche pairs on CIFAR10 training set."""
-    def __getitem__(self, idx):
-        img, target = self.data[idx], self.targets[idx]
-        img = Image.fromarray(img)  # .convert('RGB')
-        imgs = [self.transform(img), self.transform(img)]
-        return torch.stack(imgs), target  # stack a positive pair
-
-
 def nt_xent(x, t=0.5):
     x = F.normalize(x, dim=1)
     x_scores =  (x @ x.t()).clamp(min=1e-7)  # normalized cosine similarity scores
@@ -64,6 +54,60 @@ def nt_xent(x, t=0.5):
     targets[1::2] -= 1  # target of 2k+1 element is 2k
     return F.cross_entropy(x_scale, targets.long().to(x_scale.device))
 
+
+def punce_loss(x, y, prior, temperature=0.5, ):
+    q = F.normalize(x, dim=1)
+    labels = y.repeat(2, 1).T.reshape(-1)
+    # common negative item: Nx1
+    neg_item = torch.einsum('nc,ck->nk', [q, q.T]) # NXN
+    neg_item = neg_item - torch.eye(neg_item.size(0)).to(neg_item.device) * 1e5  # exclude self
+    neg_item /= temperature
+    neg_item = torch.exp(neg_item)
+    neg_item = torch.sum(neg_item, dim=1)
+    neg_item = torch.log(neg_item) # N
+    
+    # for positive sample
+    pos_index = labels==1
+    pos_q = q[pos_index, :]
+    neg_item_p = neg_item[pos_index]
+    
+    pos_item = torch.einsum('nc,ck->nk', [pos_q, pos_q.T]) # N_pxN_p
+    # exclude i
+    diag = torch.diag_embed(torch.diag(pos_item))
+    pos_item -= diag
+    pos_item /= temperature
+    pos_item = torch.log(torch.exp(pos_item))
+    
+    l_p = torch.sum(pos_item, dim=1) # N_p 
+    l_p /= (len(pos_item) - 1)
+    l_p -= neg_item_p
+    l_p = -torch.sum(l_p)
+    
+    # for unlabeled sample
+    unlabel_index = labels==-1
+    unlabel_q = q[unlabel_index, :]
+    neg_item_u = neg_item[unlabel_index]
+    q_k_targets = torch.arange(labels.size()[0])
+    q_k_targets[::2] += 1  # target of 2k element is 2k+1
+    q_k_targets[1::2] -= 1  # target of 2k+1 element is 2k
+    
+    un_q_k = torch.einsum('nc,nc->n', [unlabel_q, q[q_k_targets[unlabel_index], :] ]).unsqueeze(-1) # N_nX1
+    un_pos_item = torch.einsum('nc,cp->np', [unlabel_q, pos_q.T]) # N_nXP
+    un_pos_item = torch.cat((un_q_k, un_pos_item), dim=1) # N_nX(P+1)
+    un_pos_item /= temperature
+    
+    l_u_p = torch.sum(un_pos_item, dim=1) # N_n
+    l_u_p = l_u_p / (pos_q.size()[0] + 1)
+    
+    un_neg_item = un_q_k.squeeze(1) / temperature # N_n
+    l_u_n = un_neg_item
+    
+    l_u = prior * l_u_p + (1 - prior) * l_u_n # N_n
+    l_u -= neg_item_u
+    l_u = -torch.sum(l_u)
+    
+    loss = (l_p + l_u) / q.shape[0]
+    return loss
 
 def get_lr(step, total_steps, lr_max, lr_min):
     """Compute learning rate according to cosine annealing schedule."""
@@ -91,10 +135,12 @@ def train(args: DictConfig) -> None:
                                           get_color_distortion(s=0.5),
                                           transforms.ToTensor()])
     data_dir = args.data_dir  # get absolute path of data dir
-    train_set = CIFAR10Pair(root=data_dir,
+    train_set = CIFAR10PU(root=data_dir,
                             train=True,
                             transform=train_transform,
-                            download=True)
+                            download=True,
+                            labeled=10000,
+                            unlabeled=40000)
 
     train_loader = DataLoader(train_set,
                               batch_size=args.batch_size,
@@ -133,10 +179,15 @@ def train(args: DictConfig) -> None:
         for x, y in train_bar:
             sizes = x.size()
             x = x.view(sizes[0] * 2, sizes[2], sizes[3], sizes[4]).cuda(non_blocking=True)
-
+            # give targets to two images
+            # _y = [0] * len(x) * 2
+            # for i in range(len(y)):
+            #     _y[2*i], _y[2*i+1] = y[i], y[i]
+            # y = _y
+            
             optimizer.zero_grad()
             feature, rep = model(x)
-            loss = nt_xent(rep, args.temperature)
+            loss = punce_loss(rep, y, train_set.prior, args.temperature)
             loss.backward()
             optimizer.step()
             scheduler.step()

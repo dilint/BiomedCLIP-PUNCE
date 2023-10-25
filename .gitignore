@@ -6,3 +6,6 @@ data/
 checkpoints/
 settings/environment.json
 debug/
+*.pt
+logs/
+.vscode/

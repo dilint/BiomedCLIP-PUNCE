@@ -13,7 +13,6 @@ hydra:
 dataset: cifar10
 data_dir: /root/commonfile/hjl/cifar10
 
-
 # model
 backbone: resnet18 # or resnet34, resnet50
 projection_dim: 128 # "[...] to project the representation to a 128-dimensional latent space"

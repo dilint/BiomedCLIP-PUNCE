@@ -16,7 +16,6 @@ with open(config_file, "r") as f:
 
 # 提取所需的值
 root_path = config_data["root_path"]
-root_path = root_path+'data'
 
 class PU_MNIST(MNIST):
   def __init__(self, root, n_labels= 1000, train= True, transform= None, target_transform= None, download= False):
