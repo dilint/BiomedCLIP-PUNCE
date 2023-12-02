@@ -217,17 +217,23 @@ def train(args) -> None:
             loss_meter.update(loss.item(), x.size(0))
             train_bar.set_description("Train epoch {}, SimCLR loss: {:.4f}".format(epoch, loss_meter.avg))
             if args.wandb:
-                wandb.log(
-                    {
-                        "pretrain/train_loss": loss_meter.avg
-                    }
-                )
+                if args.ddp and args.local_rank != 0:
+                    pass
+                else:
+                    wandb.log(
+                        {
+                            "pretrain/train_loss": loss_meter.avg
+                        }
+                    )
             
             
         # save checkpoint very log_interval epochs
-        if epoch >= args.log_interval and epoch % args.log_interval == 0:
-            print("==> Save checkpoint. Train epoch {}, SimCLR loss: {:.4f}".format(epoch, loss_meter.avg))
-            torch.save(model.state_dict(), os.path.join(args.model_path, 'simclr_{}_epoch{}.pt'.format(args.backbone, epoch)))
+        if args.ddp and args.local_rank != 0:
+            pass
+        else:
+            if epoch >= args.log_interval and epoch % args.log_interval == 0:
+                print("==> Save checkpoint. Train epoch {}, SimCLR loss: {:.4f}".format(epoch, loss_meter.avg))
+                torch.save(model.state_dict(), os.path.join(args.model_path, 'simclr_{}_epoch{}.pt'.format(args.backbone, epoch)))
 
 
 if __name__ == '__main__':
@@ -245,8 +251,8 @@ if __name__ == '__main__':
     
     # train 
     parser.add_argument('--seed', default=2023, type=int)
-    parser.add_argument('--batch_size', default=64, type=int)
-    parser.add_argument('--workers', default=4, type=int)
+    parser.add_argument('--batch_size', default=256, type=int)
+    parser.add_argument('--workers', default=16, type=int)
     parser.add_argument('--epochs', default=200, type=int)
     parser.add_argument('--log_interval', default=10, type=int)
     
@@ -261,7 +267,7 @@ if __name__ == '__main__':
     parser.add_argument('--wandb', action='store_true', help='Weight&Bias')
     parser.add_argument('--project', default='simclr-puc', type=str)
     parser.add_argument('--title', default='resnet50-simclr-test', type=str)
-    parser.add_argument('--model_path', default='output_model', type=str)
+    parser.add_argument('--model_path', default='output-model', type=str)
     
     # ddp
     parser.add_argument('--ddp', action='store_true', help="if user ddp")
@@ -276,15 +282,17 @@ if __name__ == '__main__':
         torch.cuda.set_device(args.local_rank) 
         torch.distributed.init_process_group(backend='nccl')    
     
-    if args.wandb:
-        wandb.login()
-        if args.auto_resume:
-            ckp = torch.load(os.path.join(args.model_path, 'ckp.pth'))
-            wandb.init(project=args.project, name=args.title,config=args,dir=os.path.join(args.model_path),id=ckp['wandb_id'],resume='must')
-        else:
-            wandb.init(project=args.project, name=args.title,config=args,dir=os.path.join(args.model_path))
-    
-    
+    if args.ddp and args.local_rank != 0:
+        pass
+    else:
+        if args.wandb:
+            wandb.login()
+            if args.auto_resume:
+                ckp = torch.load(os.path.join(args.model_path, 'ckp.pth'))
+                wandb.init(project=args.project, name=args.title,config=args,dir=os.path.join(args.model_path),id=ckp['wandb_id'],resume='must')
+            else:
+                wandb.init(project=args.project, name=args.title,config=args,dir=os.path.join(args.model_path))
+        
     train(args)
 
 
