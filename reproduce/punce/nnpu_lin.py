@@ -12,9 +12,12 @@ from torch.utils.data import DataLoader, SubsetRandomSampler
 from torchvision.datasets import CIFAR10
 from torchvision import transforms
 from torchvision.models import resnet18, resnet34
+import torch.optim.lr_scheduler as lr_scheduler
+
 from models import SimCLR
 from tqdm import tqdm
-
+import torch.optim.lr_scheduler as lr_scheduler
+from datasets import CIFAR10PU
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +54,71 @@ class LinModel(nn.Module):
         return self.lin(self.enc(x))
 
 
-def run_epoch(model, dataloader, epoch, optimizer=None, scheduler=None):
+class NNPULoss(nn.Module): 
+    def __init__(self, 
+                 prior, 
+                 loss=(lambda x: torch.sigmoid(-x)), 
+                 beta=0.,
+                 gamma=1., 
+                 loss_weight=1.0,
+                 nnPU=True):
+        super(NNPULoss,self).__init__()
+        if not 0 < prior < 1:
+            raise NotImplementedError("The class prior should be in (0,1)")
+        self.prior = torch.tensor(prior)
+        self.beta  = beta
+        self.gamma = gamma
+        self.loss  = loss
+        self.nnPU  = nnPU
+        self.loss_weight = loss_weight
+        self.positive = 1
+        self.negative = -1
+        self.min_count = torch.tensor(1.)
+        self.number_of_negative_loss = 0
+
+    def forward(self, 
+                input, 
+                target, 
+                avg_factor=None,
+                test=False):
+        input, target = input.view(-1), target.view(-1)
+        assert(input.shape == target.shape)
+        positive = target == self.positive
+        unlabeled = target == self.negative
+        positive, unlabeled = positive.type(torch.float), unlabeled.type(torch.float) 
+    
+        if input.is_cuda:
+            self.min_count = self.min_count.cuda()
+        self.prior = self.prior.cuda()
+
+        n_positive, n_unlabeled = torch.max(self.min_count, torch.sum(positive)), torch.max(self.min_count, torch.sum(unlabeled))
+
+        # Loss function for positive and unlabeled
+        ## All loss functions are unary, such that l(t,y) = l(z) with z = ty
+        y_positive  = self.loss(input).view(-1)  # l(t, 1) = l(input, 1)  = l(input * 1)
+        y_unlabeled = self.loss(-input).view(-1) # l(t,-1) = l(input, -1) = l(input * -1)
+        
+        ### Risk computation
+        positive_risk     = torch.sum(y_positive  * positive  / n_positive)
+        positive_risk_neg = torch.sum(y_unlabeled * positive  / n_positive)
+        unlabeled_risk    = torch.sum(y_unlabeled * unlabeled / n_unlabeled)
+        negative_risk     = unlabeled_risk - self.prior * positive_risk_neg
+
+        # Update Gradient 
+        if negative_risk < -self.beta and self.nnPU:
+            # Can't understand why they put minus self.beta
+            output = self.prior * positive_risk - self.beta
+            x_out  =  - self.gamma * negative_risk  
+            self.number_of_negative_loss += 1
+        else:
+            # Rpu = pi_p * Rp + max{0, Rn} = pi_p * Rp + Rn
+            output = self.prior * positive_risk + negative_risk
+            x_out  = self.prior * positive_risk + negative_risk
+
+        return x_out 
+
+
+def run_epoch(model, dataloader, epoch, loss_fun=None, optimizer=None, scheduler=None):
     if optimizer:
         model.train()
     else:
@@ -60,10 +127,11 @@ def run_epoch(model, dataloader, epoch, optimizer=None, scheduler=None):
     loss_meter = AverageMeter('loss')
     acc_meter = AverageMeter('acc')
     loader_bar = tqdm(dataloader)
+    
     for x, y in loader_bar:
         x, y = x.cuda(), y.cuda()
         logits = model(x)
-        loss = F.cross_entropy(logits, y)
+        loss = loss_fun(logits, y)
 
         if optimizer:
             optimizer.zero_grad()
@@ -72,7 +140,7 @@ def run_epoch(model, dataloader, epoch, optimizer=None, scheduler=None):
             if scheduler:
                 scheduler.step()
 
-        acc = (logits.argmax(dim=1) == y).float().mean()
+        acc = (torch.sign(logits) == y).float().mean()
         loss_meter.update(loss.item(), x.size(0))
         acc_meter.update(acc.item(), x.size(0))
         if optimizer:
@@ -97,21 +165,22 @@ def finetune(args: DictConfig) -> None:
                                           transforms.ToTensor()])
     test_transform = transforms.ToTensor()
 
-    data_dir = hydra.utils.to_absolute_path(args.data_dir)
-    train_set = CIFAR10(root=data_dir, train=True, transform=train_transform, download=False)
-    test_set = CIFAR10(root=data_dir, train=False, transform=test_transform, download=False)
+    data_dir = args.data_dir
+    train_set = CIFAR10PU(root=data_dir, train=True, transform=train_transform, download=False,
+                          labeled=10000, unlabeled=40000)
+    test_set = CIFAR10PU(root=data_dir, train=False, transform=test_transform, download=False)
 
-    n_classes = 10
-    indices = np.random.choice(len(train_set), 10*n_classes, replace=False)
-    sampler = SubsetRandomSampler(indices)
+    # n_classes = 2
+    # indices = np.random.choice(len(train_set), 10*n_classes, replace=False)
+    # sampler = SubsetRandomSampler(indices)
     train_loader = DataLoader(train_set, batch_size=args.batch_size, drop_last=True)
     test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
 
     # Prepare model
     base_encoder = eval(args.backbone)
     pre_model = SimCLR(base_encoder, projection_dim=args.projection_dim).cuda()
-    pre_model.load_state_dict(torch.load('simclr_{}_epoch{}.pt'.format(args.backbone, args.load_epoch)))
-    model = LinModel(pre_model.enc, feature_dim=pre_model.feature_dim, n_classes=len(train_set.targets))
+    pre_model.load_state_dict(torch.load('/root/project/biomed-clip-puNCE/reproduce/punce/logs/SimCLR/cifar10/'+'simclr_{}_epoch{}.pt'.format(args.backbone, args.load_epoch)))
+    model = LinModel(pre_model.enc, feature_dim=pre_model.feature_dim, n_classes=1)
     model = model.cuda()
 
     # Fix encoder
@@ -119,26 +188,21 @@ def finetune(args: DictConfig) -> None:
     parameters = [param for param in model.parameters() if param.requires_grad is True]  # trainable parameters.
     # optimizer = Adam(parameters, lr=0.001)
 
-    optimizer = torch.optim.SGD(
+    nnpuloss = NNPULoss(prior=train_set.prior, nnPU=True)
+    
+    optimizer = torch.optim.Adam(
         parameters,
-        0.2,   # lr = 0.1 * batch_size / 256, see section B.6 and B.7 of SimCLR paper.
-        momentum=args.momentum,
-        weight_decay=0.,
-        nesterov=True)
+        lr = 0.01,   # lr = 0.1 * batch_size / 256, see section B.6 and B.7 of SimCLR paper.
+        weight_decay=0.005)
 
     # cosine annealing lr
-    scheduler = LambdaLR(
-        optimizer,
-        lr_lambda=lambda step: get_lr(  # pylint: disable=g-long-lambda
-            step,
-            args.epochs * len(train_loader),
-            args.learning_rate,  # lr_lambda computes multiplicative factor
-            1e-3))
+    scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.finetune_epochs)
+
 
     optimal_loss, optimal_acc = 1e5, 0.
     for epoch in range(1, args.finetune_epochs + 1):
-        train_loss, train_acc = run_epoch(model, train_loader, epoch, optimizer, scheduler)
-        test_loss, test_acc = run_epoch(model, test_loader, epoch)
+        train_loss, train_acc = run_epoch(model, train_loader, epoch, nnpuloss, optimizer, scheduler)
+        test_loss, test_acc = run_epoch(model, test_loader, epoch, nnpuloss)
 
         if train_loss < optimal_loss:
             optimal_loss = train_loss

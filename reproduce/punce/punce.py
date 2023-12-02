@@ -13,7 +13,7 @@ from torchvision.models import resnet18, resnet34
 from torchvision import transforms
 
 from models import SimCLR
-from datasets import CIFAR10Pair, CIFAR10PU
+from datasets import CIFAR10Pair, CIFAR10PUC
 from tqdm import tqdm
 
 
@@ -135,7 +135,7 @@ def train(args: DictConfig) -> None:
                                           get_color_distortion(s=0.5),
                                           transforms.ToTensor()])
     data_dir = args.data_dir  # get absolute path of data dir
-    train_set = CIFAR10PU(root=data_dir,
+    train_set = CIFAR10PUC(root=data_dir,
                             train=True,
                             transform=train_transform,
                             download=True,

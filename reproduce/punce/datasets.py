@@ -39,12 +39,6 @@ class CIFAR10PU(CIFAR10):
 
         self._load_meta()
 
-    def __getitem__(self, idx):
-        img, target = self.data[idx], self.targets[idx]
-        img = Image.fromarray(img)  # .convert('RGB')
-        imgs = [self.transform(img), self.transform(img)]
-        return torch.stack(imgs), target  # stack a positive pair
-    
    
     ## add function ##
     def _binarize_cifar10_class(self, y):
@@ -86,6 +80,14 @@ class CIFAR10PU(CIFAR10):
         x, y = x[perm], y[perm]
         return x, y, _prior
     
+    
+class CIFAR10PUC(CIFAR10PU):
+    def __getitem__(self, idx):
+        img, target = self.data[idx], self.targets[idx]
+        img = Image.fromarray(img)  # .convert('RGB')
+        imgs = [self.transform(img), self.transform(img)]
+        return torch.stack(imgs), target  # stack a positive pair
+
 if __name__ == '__main__':
     root_path = '/root/commonfile/hjl/cifar10'
     dataset = CIFAR10PU(root_path, train=True)

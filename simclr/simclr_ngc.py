@@ -1,0 +1,290 @@
+import wandb
+from omegaconf import DictConfig
+import logging
+
+import numpy as np
+from PIL import Image
+import glob
+
+import torch
+import torch.nn as nn
+import torch.backends.cudnn as cudnn
+import torch.nn.functional as F
+from torch.optim.lr_scheduler import LambdaLR
+from torch.utils.data import DataLoader, Dataset
+from torchvision.datasets import CIFAR10
+from torchvision.models import resnet18, resnet34
+from torchvision import transforms
+
+from models import SimCLR, SimCLR_custome
+from resnet_custom import resnet50_baseline
+
+from tqdm import tqdm
+import os
+import argparse
+
+
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self, name):
+        self.name = name
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+class CIFAR10Pair(CIFAR10):
+    """Generate mini-batche pairs on CIFAR10 training set."""
+    def __getitem__(self, idx):
+        img, target = self.data[idx], self.targets[idx]
+        img = Image.fromarray(img)  # .convert('RGB')
+        imgs = [self.transform(img), self.transform(img)]
+        return torch.stack(imgs), target  # stack a positive pair
+
+class Whole_Slide_Patchs_Ngc(Dataset):
+    def __init__(self,
+                 data_dir,
+                 target_patch_size,
+                 transform):
+        # get img_path
+        sub_paths = [
+            'Unannotated_KSJ/Unannotated-KSJ-TCTNGC-NILM',
+            'Unannotated_KSJ/Unannotated-KSJ-TCTNGC-POS',
+            'Unannotated_XIMEA/Unannotated-XIMEA-TCTNGC-NILM',
+            'Unannotated_XIMEA/Unannotated-XIMEA-TCTNGC-POS'
+        ]
+        data_roots = list(map(lambda x: os.path.join(data_dir, x), sub_paths)) 
+        wsi_dirs = []
+        img_paths = []
+        for data_root in data_roots:
+            wsi_dirs.extend([os.path.join(data_root, subdir) for subdir in os.listdir(data_root)])
+
+        for wsi_path in wsi_dirs:
+            img_paths.extend(glob.glob(os.path.join(wsi_path, '*.jpg')))
+        self.img_paths = img_paths
+        # the size is too big
+        self.preprocess = transforms.Compose([
+            transforms.Resize(target_patch_size),
+        ])
+        self.transform = transform
+        
+    def __getitem__(self, idx):
+        img = Image.open(self.img_paths[idx])
+        # img = self.preprocess(img)
+        imgs =  [self.transform(img), self.transform(img)]
+        return torch.stack(imgs), 1
+    
+    def __len__(self):
+        return len(self.img_paths)
+
+    def __str__(self) -> str:
+        return f'the length of patchs in {self.img_paths} is {self.__len__()}'
+
+
+def nt_xent(x, t=0.5):
+    x = F.normalize(x, dim=1)
+    x_scores =  (x @ x.t()).clamp(min=1e-7)  # normalized cosine similarity scores
+    x_scale = x_scores / t   # scale with temperature
+
+    # (2N-1)-way softmax without the score of i-th entry itself.
+    # Set the diagonals to be large negative values, which become zeros after softmax.
+    x_scale = x_scale - torch.eye(x_scale.size(0)).to(x_scale.device) * 1e5
+
+    # targets 2N elements.
+    targets = torch.arange(x.size()[0])
+    targets[::2] += 1  # target of 2k element is 2k+1
+    targets[1::2] -= 1  # target of 2k+1 element is 2k
+    return F.cross_entropy(x_scale, targets.long().to(x_scale.device))
+
+
+def get_lr(step, total_steps, lr_max, lr_min):
+    """Compute learning rate according to cosine annealing schedule."""
+    return lr_min + (lr_max - lr_min) * 0.5 * (1 + np.cos(step / total_steps * np.pi))
+
+
+# color distortion composed by color jittering and color dropping.
+# See Section A of SimCLR: https://arxiv.org/abs/2002.05709
+def get_color_distortion(s=0.5):  # 0.5 for CIFAR10 by default
+    # s is the strength of color distortion
+    color_jitter = transforms.ColorJitter(0.8*s, 0.8*s, 0.8*s, 0.2*s)
+    rnd_color_jitter = transforms.RandomApply([color_jitter], p=0.8)
+    rnd_gray = transforms.RandomGrayscale(p=0.2)
+    color_distort = transforms.Compose([rnd_color_jitter, rnd_gray])
+    return color_distort
+
+
+def train(args) -> None:
+    assert torch.cuda.is_available()
+    cudnn.benchmark = True
+
+    train_transform = transforms.Compose([transforms.RandomResizedCrop(224),
+                                          transforms.RandomHorizontalFlip(p=0.5),
+                                          get_color_distortion(s=0.5),
+                                          transforms.ToTensor()])
+    
+    # set dataset 
+    if args.dataset == 'cifar10':
+        train_set = CIFAR10Pair(root=args.data_dir,
+                                train=True,
+                                transform=train_transform,
+                                download=True)
+    elif args.dataset == 'ngc':
+        train_set = Whole_Slide_Patchs_Ngc(
+            data_dir=args.data_dir,
+            target_patch_size=args.target_patch_size,
+            transform=train_transform
+        )
+    
+    if args.ddp:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_set)
+        train_loader = DataLoader(train_set, 
+                                batch_size=args.batch_size,
+                                shuffle=False,
+                                num_workers=args.workers,
+                                sampler=train_sampler)
+    else:
+        train_loader = DataLoader(train_set,
+                                batch_size=args.batch_size,
+                                shuffle=True,
+                                num_workers=args.workers,
+                                drop_last=True)
+    print(len(train_set))
+    
+    # Prepare model
+    # assert args.backbone in ['resnet18', 'resnet34']
+    # base_encoder = eval(args.backbone)
+    # model = SimCLR(base_encoder, projection_dim=args.projection_dim).cuda()
+    base_model = resnet50_baseline(pretrained=True)
+    for name, param in base_model.named_parameters():
+        param.requires_grad = False
+        if 'hide_layer' in name :
+            param.requires_grad = True
+    model = SimCLR_custome(base_model, feature_dim=1024)
+    model = model.cuda()
+    
+    if args.ddp:
+        model = nn.parallel.DistributedDataParallel(model)
+        
+    
+    	# print_network(model)
+    # if torch.cuda.device_count() > 1:
+    #     model = nn.DataParallel(model)
+    # logger.info('Base model: {}'.format(args.backbone))
+    # logger.info('feature dim: {}, projection dim: {}'.format(model.feature_dim, args.projection_dim))
+
+    optimizer = torch.optim.SGD(
+        model.parameters(),
+        args.learning_rate,
+        momentum=args.momentum,
+        weight_decay=args.weight_decay,
+        nesterov=True)
+
+    # cosine annealing lr
+    scheduler = LambdaLR(
+        optimizer,
+        lr_lambda=lambda step: get_lr(  # pylint: disable=g-long-lambda
+            step,
+            args.epochs * len(train_loader),
+            args.learning_rate,  # lr_lambda computes multiplicative factor
+            1e-3))
+
+    # SimCLR training
+    model.train()
+    for epoch in range(1, args.epochs + 1):
+        loss_meter = AverageMeter("SimCLR_loss")
+        train_bar = tqdm(train_loader)
+        for x, y in train_bar:
+            sizes = x.size()
+            x = x.view(sizes[0] * 2, sizes[2], sizes[3], sizes[4]).cuda(non_blocking=True)
+
+            optimizer.zero_grad()
+            # feature, rep = model(x)
+            rep = model(x)
+            loss = nt_xent(rep, args.temperature)
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+
+            loss_meter.update(loss.item(), x.size(0))
+            train_bar.set_description("Train epoch {}, SimCLR loss: {:.4f}".format(epoch, loss_meter.avg))
+            if args.wandb:
+                wandb.log(
+                    {
+                        "pretrain/train_loss": loss_meter.avg
+                    }
+                )
+            
+            
+        # save checkpoint very log_interval epochs
+        if epoch >= args.log_interval and epoch % args.log_interval == 0:
+            print("==> Save checkpoint. Train epoch {}, SimCLR loss: {:.4f}".format(epoch, loss_meter.avg))
+            torch.save(model.state_dict(), os.path.join(args.model_path, 'simclr_{}_epoch{}.pt'.format(args.backbone, epoch)))
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='PyTorch SimCLR Training')
+    
+    parser.add_argument('--auto_resume', action='store_true', help='automatically resume training')
+    # dataset
+    parser.add_argument('--dataset', type=str, default='ngc', choices=['cifar10', 'ngc'])
+    parser.add_argument('--data_dir', type=str, default='/root/commonfile/wsi/ngc-2023-1333')
+    parser.add_argument('--target_patch_size', type=int, nargs='+', default=(1333, 800))
+    
+    # model
+    # parser.add_argument('--backbone', type=str, default='resnet18', choices=['resnet18', 'resnet50', 'resnet101'])
+    # parser.add_argument('--proj_hidden_dim', default=128, type=int, help='dimension of projected features')
+    
+    # train 
+    parser.add_argument('--seed', default=2023, type=int)
+    parser.add_argument('--batch_size', default=64, type=int)
+    parser.add_argument('--workers', default=4, type=int)
+    parser.add_argument('--epochs', default=200, type=int)
+    parser.add_argument('--log_interval', default=10, type=int)
+    
+    # loss options
+    parser.add_argument('--optimzer', default='sgd', type=str, choices=['adam', 'sgd'])
+    parser.add_argument('--learning_rate', default=0.6, type=float, help='initial lr = 0.3 * batch_size / 256')
+    parser.add_argument('--momentum', default=0.9, type=float)
+    parser.add_argument('--weight_decay', default=1.0e-6, type=float, help='"optimized using LARS [...] and weight decay of 10−6"')
+    parser.add_argument('--temperature', default=0.5, type=float)
+    
+    # wandb
+    parser.add_argument('--wandb', action='store_true', help='Weight&Bias')
+    parser.add_argument('--project', default='simclr-puc', type=str)
+    parser.add_argument('--title', default='resnet50-simclr-test', type=str)
+    parser.add_argument('--model_path', default='output_model', type=str)
+    
+    # ddp
+    parser.add_argument('--ddp', action='store_true', help="if user ddp")
+    parser.add_argument("--local_rank", type=int)
+    
+    args = parser.parse_args()
+    
+    args.model_path = os.path.join(args.model_path, args.project, args.title)
+    os.makedirs(args.model_path, exist_ok=True)
+    
+    if args.ddp:
+        torch.cuda.set_device(args.local_rank) 
+        torch.distributed.init_process_group(backend='nccl')    
+    
+    if args.wandb:
+        wandb.login()
+        if args.auto_resume:
+            ckp = torch.load(os.path.join(args.model_path, 'ckp.pth'))
+            wandb.init(project=args.project, name=args.title,config=args,dir=os.path.join(args.model_path),id=ckp['wandb_id'],resume='must')
+        else:
+            wandb.init(project=args.project, name=args.title,config=args,dir=os.path.join(args.model_path))
+    
+    
+    train(args)
+
+

@@ -9,3 +9,4 @@ debug/
 *.pt
 logs/
 .vscode/
+output*
