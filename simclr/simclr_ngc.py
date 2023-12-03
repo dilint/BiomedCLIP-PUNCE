@@ -233,7 +233,7 @@ def train(args) -> None:
         else:
             if epoch >= args.log_interval and epoch % args.log_interval == 0:
                 print("==> Save checkpoint. Train epoch {}, SimCLR loss: {:.4f}".format(epoch, loss_meter.avg))
-                torch.save(model.state_dict(), os.path.join(args.model_path, 'simclr_{}_epoch{}.pt'.format(args.backbone, epoch)))
+                torch.save(model.state_dict(), os.path.join(args.model_path, '{}_epoch{}.pt'.format(args.title, epoch)))
 
 
 if __name__ == '__main__':
