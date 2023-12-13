@@ -3,11 +3,19 @@
 
 ## Train Backbone
 ```bash
+cd simclr
+```
+
+```bash
 # 训练backbone（2d 4张3080
 python -m torch.distributed.launch --nproc_per_node=4 simclr_ngc.py --ddp --data_dir '/home1/wsi/ngc-2023-1333' --project=$PROJECT_NAME --model_path=$OUTPUT_PATH --title=$TITLE_NAME --seed=2023 --batch_size=64 --epochs=200 --wandb
 ```
 
 ## Extract WSI Features
+```bash
+cd extract-features
+```
+
 ```bash
 # 提取特征 （20min 8张2080
 GPU_NUMBERS=8
@@ -17,6 +25,10 @@ python -m torch.distributed.launch --nproc_per_node=$GPU_NUMBERS extract_feature
 ```
 
 ## MIL Train
+```bash
+cd mil-methods
+```
+
 ```bash
 # MIL整合
 # abmil  （22min 单张2080
