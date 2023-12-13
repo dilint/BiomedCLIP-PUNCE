@@ -53,6 +53,7 @@ class CIFAR10Pair(CIFAR10):
 class Whole_Slide_Patchs_Ngc(Dataset):
     def __init__(self,
                  data_dir,
+                 train_label_path,
                  target_patch_size,
                  transform):
         # get img_path
@@ -64,11 +65,20 @@ class Whole_Slide_Patchs_Ngc(Dataset):
         ]
         data_roots = list(map(lambda x: os.path.join(data_dir, x), sub_paths)) 
         wsi_dirs = []
+        train_wsi_lists = []
         img_paths = []
+        with open(train_label_path, 'r') as f:
+            lines = f.readlines()
+            for row in lines:
+                row = row.strip().split(',')
+                train_wsi_lists.append(row[0])
         for data_root in data_roots:
             wsi_dirs.extend([os.path.join(data_root, subdir) for subdir in os.listdir(data_root)])
-
+        
         for wsi_path in wsi_dirs:
+            wsi_name = os.path.basename(wsi_path)
+            if wsi_name not in train_wsi_lists:
+                continue
             img_paths.extend(glob.glob(os.path.join(wsi_path, '*.jpg')))
         self.img_paths = img_paths
         # the size is too big
@@ -140,6 +150,7 @@ def train(args) -> None:
     elif args.dataset == 'ngc':
         train_set = Whole_Slide_Patchs_Ngc(
             data_dir=args.data_dir,
+            train_label_path=args.train_label_path,
             target_patch_size=args.target_patch_size,
             transform=train_transform
         )
@@ -243,6 +254,7 @@ if __name__ == '__main__':
     # dataset
     parser.add_argument('--dataset', type=str, default='ngc', choices=['cifar10', 'ngc'])
     parser.add_argument('--data_dir', type=str, default='/root/commonfile/wsi/ngc-2023-1333')
+    parser.add_argument('--train_label_path', type=str, default='train_label.csv')
     parser.add_argument('--target_patch_size', type=int, nargs='+', default=(1333, 800))
     
     # model
