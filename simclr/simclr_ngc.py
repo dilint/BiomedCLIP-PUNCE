@@ -254,8 +254,8 @@ if __name__ == '__main__':
     # dataset
     parser.add_argument('--dataset', type=str, default='ngc', choices=['cifar10', 'ngc'])
     parser.add_argument('--data_dir', type=str, default='/root/commonfile/wsi/ngc-2023-1333')
-    parser.add_argument('--train_label_path', type=str, default='train_label.csv')
-    parser.add_argument('--target_patch_size', type=int, nargs='+', default=(1333, 800))
+    parser.add_argument('--train_label_path', type=str, default='ngc_train_label.csv')
+    # parser.add_argument('--target_patch_size', type=int, nargs='+', default=(1333, 800))
     
     # model
     # parser.add_argument('--backbone', type=str, default='resnet18', choices=['resnet18', 'resnet50', 'resnet101'])
@@ -263,8 +263,8 @@ if __name__ == '__main__':
     
     # train 
     parser.add_argument('--seed', default=2023, type=int)
-    parser.add_argument('--batch_size', default=256, type=int)
-    parser.add_argument('--workers', default=16, type=int)
+    parser.add_argument('--batch_size', default=64, type=int)
+    parser.add_argument('--workers', default=40, type=int)
     parser.add_argument('--epochs', default=200, type=int)
     parser.add_argument('--log_interval', default=10, type=int)
     
