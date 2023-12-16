@@ -103,8 +103,7 @@ def main():
     parser.add_argument('--target_patch_size', type=int, nargs='+', default=(224, 224))
     # model options
     parser.add_argument('--base_model', default='resnet50', type=str, choices=['biomedclip', 'resnet50'])
-    parser.add_argument('--model_pretrain', action='store_true', default=True)
-    parser.add_argument('--ckp_path', type=str)
+    parser.add_argument('--ckp_path', type=str, default=None)
     args = parser.parse_args()
     if args.multi_gpu:
         args.local_rank = int(os.environ['LOCAL_RANK'])
@@ -129,9 +128,8 @@ def main():
     print('loading model')
     preprocess_val = None
     if args.base_model == 'resnet50':
-        if args.model_pretrain:
-            model = resnet50_baseline(pretrained=True)
-        elif args.ckp_path:
+        
+        if args.ckp_path:
             model = resnet50_baseline(pretrained=False)
             new_ckp = dict()
             ckp = torch.load(args.ckp_path)
@@ -141,6 +139,8 @@ def main():
                     continue
                 new_ckp[key] = param
             model.load_state_dict(new_ckp)
+        else:
+            model = resnet50_baseline(pretrained=True)
         print('successfully load model')
     elif args.base_model == 'biomedclip':
         model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms('hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224')

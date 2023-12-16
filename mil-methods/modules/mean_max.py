@@ -14,7 +14,7 @@ def initialize_weights(module):
 class MeanMIL(nn.Module):
     def __init__(self,input_dim,n_classes=1,dropout=True,act='relu',test=False):
         super(MeanMIL, self).__init__()
-
+        self.test = test
         head = [nn.Linear(input_dim,192)]
 
         if act.lower() == 'relu':
@@ -31,8 +31,15 @@ class MeanMIL(nn.Module):
 
         self.apply(initialize_weights)
 
+    
+    def foward_test(self, x):
+        x = self.head(x)
+        return x
+            
     def forward(self,x):
-
+        if self.test:
+            return self.foward_test(x)
+        
         x = self.head(x)
         x = x.mean(dim=1)
         return x
@@ -40,7 +47,7 @@ class MeanMIL(nn.Module):
 class MaxMIL(nn.Module):
     def __init__(self,input_dim,n_classes=1,dropout=True,act='relu',test=False):
         super(MaxMIL, self).__init__()
-
+        self.test = test
         head = [nn.Linear(input_dim,512)]
 
         if act.lower() == 'relu':
@@ -56,7 +63,15 @@ class MaxMIL(nn.Module):
 
         self.apply(initialize_weights)
 
+    
+    def foward_test(self, x):
+        x = self.head(x)
+        return x
+            
     def forward(self,x):
-        x,_ = self.head(x)
+        if self.test:
+            return self.foward_test(x)
+        
+        x = self.head(x)
         x = x.max(dim=1)
         return x

@@ -195,5 +195,48 @@ class C16Dataset(Dataset):
 
         label = int(self.slide_label[idx])
 
+        return features , label, file_path
+    
 
-        return features , label
+class NGCDatasetInfer(Dataset):
+
+    def __init__(self, file_name, file_label,root,persistence=False,keep_same_psize=0,is_train=False):
+        """
+        Args
+        :param images: 
+        :param transform: optional transform to be applied on a sample
+        """
+        super(NGCDatasetInfer, self).__init__()
+        self.file_name = file_name
+        self.slide_label = file_label
+        self.slide_label = [int(_l) for _l in self.slide_label]
+        self.size = len(self.file_name)
+        self.root = root
+        self.persistence = persistence
+        self.keep_same_psize = keep_same_psize
+        self.is_train = is_train
+
+        if persistence:
+            self.feats = [ torch.load(os.path.join(root,'pt', _f+'.pt')) for _f in file_name ]
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, idx):
+        """
+        Args
+        :param idx: the index of item
+        :return: image and its label
+        """
+        if self.persistence:
+            features = self.feats[idx]
+        else:
+            dir_path = os.path.join(self.root,"pt")
+
+            file_path = os.path.join(dir_path, self.file_name[idx]+'.pt')
+            features = torch.load(file_path)
+
+        label = int(self.slide_label[idx])
+        wsi_name = self.file_name[idx]
+        
+        return features , label, wsi_name
