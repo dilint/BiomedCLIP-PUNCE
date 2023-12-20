@@ -1,5 +1,10 @@
 # biomed-clip-puNCE
 
+## Requirement
+```bash
+pip install open_clip_torch transformers matplotlib
+pip install h5py
+```
 
 ## Train Backbone
 ```bash

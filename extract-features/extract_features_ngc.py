@@ -15,16 +15,7 @@ from PIL import Image
 import h5py
 import glob
 
-device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-root_path = '/root/commonfile/wsi/ngc-2023-1333'
-# set data roots
-sub_paths = [
-	'Unannotated_KSJ/Unannotated-KSJ-TCTNGC-NILM',
-	'Unannotated_KSJ/Unannotated-KSJ-TCTNGC-POS',
-	'Unannotated_XIMEA/Unannotated-XIMEA-TCTNGC-NILM',
-	'Unannotated_XIMEA/Unannotated-XIMEA-TCTNGC-POS'
-]
-data_roots = list(map(lambda x: os.path.join(root_path, x), sub_paths)) 
+
 
 # patchs in one bag 
 class Whole_Slide_Patchs_Ngc(Dataset):
@@ -88,13 +79,14 @@ def compute_w_loader(wsi_dir,
     return output_path
     
 def main():
-    # set args
+    # set argsrget_patch
     parser = argparse.ArgumentParser(description='NGC dataset Feature Extraction')
+    parser.add_argument('--wsi_root', type=str, default='root/commonfile/wsi/ngc-2023-133')
     parser.add_argument('--output_path', type=str, default='result-final-ngc-features')
     parser.add_argument('--feat_dir', type=str, default='resnet-ori-test')
     parser.add_argument('--verbose', type=int, default=0)
     parser.add_argument('--print_every', type=int, default=20)
-    # inference options
+    # inference options 
     parser.add_argument('--multi_gpu', action='store_true', default=False)
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--num_workers', type=int, default=16)
@@ -105,10 +97,22 @@ def main():
     parser.add_argument('--base_model', default='resnet50', type=str, choices=['biomedclip', 'resnet50'])
     parser.add_argument('--ckp_path', type=str, default=None)
     args = parser.parse_args()
+    
     if args.multi_gpu:
         args.local_rank = int(os.environ['LOCAL_RANK'])
         args.world_size = int(os.environ['WORLD_SIZE'])
+    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+    
     # get wsi paths
+    # set data roots
+    wsi_root = args.wsi_root
+    sub_paths = [
+        'Unannotated_KSJ/Unannotated-KSJ-TCTNGC-NILM',
+        'Unannotated_KSJ/Unannotated-KSJ-TCTNGC-POS',
+        'Unannotated_XIMEA/Unannotated-XIMEA-TCTNGC-NILM',
+        'Unannotated_XIMEA/Unannotated-XIMEA-TCTNGC-POS'
+    ]
+    data_roots = list(map(lambda x: os.path.join(wsi_root, x), sub_paths)) 
     wsi_dirs = []
     output_path = args.output_path
     output_path = os.path.join(output_path, args.feat_dir)

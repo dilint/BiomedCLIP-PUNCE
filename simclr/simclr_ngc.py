@@ -54,7 +54,6 @@ class Whole_Slide_Patchs_Ngc(Dataset):
     def __init__(self,
                  data_dir,
                  train_label_path,
-                 target_patch_size,
                  transform):
         # get img_path
         sub_paths = [
@@ -82,14 +81,10 @@ class Whole_Slide_Patchs_Ngc(Dataset):
             img_paths.extend(glob.glob(os.path.join(wsi_path, '*.jpg')))
         self.img_paths = img_paths
         # the size is too big
-        self.preprocess = transforms.Compose([
-            transforms.Resize(target_patch_size),
-        ])
         self.transform = transform
         
     def __getitem__(self, idx):
         img = Image.open(self.img_paths[idx])
-        # img = self.preprocess(img)
         imgs =  [self.transform(img), self.transform(img)]
         return torch.stack(imgs), 1
     
@@ -151,7 +146,6 @@ def train(args) -> None:
         train_set = Whole_Slide_Patchs_Ngc(
             data_dir=args.data_dir,
             train_label_path=args.train_label_path,
-            target_patch_size=args.target_patch_size,
             transform=train_transform
         )
     
@@ -263,7 +257,7 @@ if __name__ == '__main__':
     
     # train 
     parser.add_argument('--seed', default=2023, type=int)
-    parser.add_argument('--batch_size', default=64, type=int)
+    parser.add_argument('--batch_size', default=256, type=int)
     parser.add_argument('--workers', default=40, type=int)
     parser.add_argument('--epochs', default=200, type=int)
     parser.add_argument('--log_interval', default=10, type=int)
