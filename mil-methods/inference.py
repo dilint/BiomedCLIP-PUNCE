@@ -131,7 +131,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', default=2023, type=int)
     parser.add_argument('--ckp_path', default='/root/project/BiomedCLIP-PUNCE/mil-methods/output-model/output-test/resnet1-meanmil-ngc/fold_0_model_best_auc.pt', type=str)
     # Output
-    parser.add_argument('--output_root', default='output-filter/ngc-meanmil/', type=str, help='output path')
+    parser.add_argument('--output_root', default='/root/commonfile/wsi/output-filter/ngc-meanmil/', type=str, help='output path')
     parser.add_argument('--topk_num', default=50, type=int, help='topk_num')
     args = parser.parse_args()
     main(args)
