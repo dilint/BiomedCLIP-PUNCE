@@ -760,9 +760,7 @@ if __name__ == '__main__':
     # Dataset 
     parser.add_argument('--datasets', default='camelyon16', type=str, help='[camelyon16, tcga, ngc]')
     parser.add_argument('--dataset_root', default='/data/xxx/TCGA', type=str, help='Dataset root path')
-    parser.add_argument('--train_label_path', default='/root/project/MHIM-MIL/ngc-labels/train_label.csv', type=str, help='label of train dataset')
-    parser.add_argument('--val_label_path', default='/root/project/MHIM-MIL/ngc-labels/val_label.csv', type=str, help='label of val dataset')
-    parser.add_argument('--test_label_path', default='/root/project/MHIM-MIL/ngc-labels/test_label.csv', type=str, help='label of test dataset')
+    parser.add_argument('--label_path', default='/root/project/MHIM-MIL/ngc-labels/train_label.csv', type=str, help='label of train dataset')
     parser.add_argument('--tcga_max_patch', default=-1, type=int, help='Max Number of patch in TCGA [-1]')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
     parser.add_argument('--fix_train_random', action='store_true', help='Fix random seed of Training')
@@ -841,6 +839,9 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, help='Output path')
 
     args = parser.parse_args()
+    args.train_label_path = os.path.join(args.label_path, 'ngc_train_label.csv')
+    args.val_label_path = os.path.join(args.label_path, 'ngc_val_label.csv')
+    args.test_label_path = os.path.join(args.label_path, 'ngc_test_label.csv')
     
     if not os.path.exists(os.path.join(args.model_path,args.project)):
         os.mkdir(os.path.join(args.model_path,args.project))

@@ -74,9 +74,9 @@ def main(args):
         'act': args.act,
         'input_dim': args.input_dim
     }
-    if model_type == 'meanmil':
+    if model_type == 'mean_mil':
         model = mean_max.MeanMIL(test=True, **model_args).to(device)
-    elif model_type == 'maxmil':
+    elif model_type == 'max_mil':
         model = mean_max.MaxMIL(test=True, **model_args).to(device)
     
     # load checkpoint

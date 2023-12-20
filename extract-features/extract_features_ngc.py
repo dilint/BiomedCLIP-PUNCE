@@ -15,7 +15,7 @@ from PIL import Image
 import h5py
 import glob
 
-
+device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 # patchs in one bag 
 class Whole_Slide_Patchs_Ngc(Dataset):
@@ -101,7 +101,6 @@ def main():
     if args.multi_gpu:
         args.local_rank = int(os.environ['LOCAL_RANK'])
         args.world_size = int(os.environ['WORLD_SIZE'])
-    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     
     # get wsi paths
     # set data roots

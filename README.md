@@ -4,6 +4,8 @@
 ```bash
 pip install open_clip_torch transformers matplotlib
 pip install h5py
+pip install scikit-learn
+pip install future
 ```
 
 ## Train Backbone
