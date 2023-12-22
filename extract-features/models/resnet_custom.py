@@ -97,6 +97,26 @@ class ResNet_Baseline(nn.Module):
 
         return nn.Sequential(*layers)
 
+        return x
+    
+    
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        return x
+
+
+
+class ResNet_HideLayer(ResNet_Baseline):
     def forward(self, x):
         x = self.conv1(x)
         x = self.bn1(x)
@@ -112,13 +132,16 @@ class ResNet_Baseline(nn.Module):
 
         x = self.hide_layer(x)
         return x
-
-def resnet50_baseline(pretrained=False):
+    
+def resnet50_baseline(pretrained=False, hideLayer=False):
     """Constructs a Modified ResNet-50 model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = ResNet_Baseline(Bottleneck_Baseline, [3, 4, 6, 3])
+    if hideLayer:
+        model = ResNet_HideLayer(Bottleneck_Baseline, [3, 4, 6, 3])
+    else:
+        model = ResNet_Baseline(Bottleneck_Baseline, [3, 4, 6, 3])
     if pretrained:
         model = load_pretrained_weights(model, 'resnet50')
     return model

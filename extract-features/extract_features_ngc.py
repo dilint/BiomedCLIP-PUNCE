@@ -88,8 +88,8 @@ def main():
     parser.add_argument('--print_every', type=int, default=20)
     # inference options 
     parser.add_argument('--multi_gpu', action='store_true', default=False)
-    parser.add_argument('--batch_size', type=int, default=16)
-    parser.add_argument('--num_workers', type=int, default=16)
+    parser.add_argument('--batch_size', type=int, default=16)  
+    parser.add_argument('--num_workers', type=int, default=16)  
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--world_size', type=int, default=1)
     parser.add_argument('--target_patch_size', type=int, nargs='+', default=(224, 224))
@@ -133,7 +133,7 @@ def main():
     if args.base_model == 'resnet50':
         
         if args.ckp_path:
-            model = resnet50_baseline(pretrained=False)
+            model = resnet50_baseline(pretrained=False, hideLayer=True)
             new_ckp = dict()
             ckp = torch.load(args.ckp_path)
             for key, param in ckp.items():
@@ -143,7 +143,7 @@ def main():
                 new_ckp[key] = param
             model.load_state_dict(new_ckp)
         else:
-            model = resnet50_baseline(pretrained=True)
+            model = resnet50_baseline(pretrained=True, hideLayer=False)
         print('successfully load model')
     elif args.base_model == 'biomedclip':
         model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms('hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224')
