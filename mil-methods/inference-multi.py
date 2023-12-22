@@ -13,13 +13,11 @@ from modules import mean_max
 
 def copy_file(args):
     source, dest = args
-    if not os.path.exists(os.path.dirname(dest)):
-        os.makedirs(os.path.dirname(dest))
     os.system('cp {} {}'.format(source, dest))
 
 
 class WsiPathUtil():
-    def __init__(self, wsi_root, output_root):
+    def __init__(self, wsi_root, output_root, num_parallel):
         sub_paths = [
             'Unannotated_KSJ/Unannotated-KSJ-TCTNGC-NILM',
             'Unannotated_KSJ/Unannotated-KSJ-TCTNGC-POS',
@@ -28,6 +26,7 @@ class WsiPathUtil():
         ]
         self.wsi_root = wsi_root
         self.output_root = output_root
+        self.num_parallel = num_parallel
         self.wsi_dict = {}
         data_roots = list(map(lambda x: os.path.join(wsi_root, x), sub_paths)) 
         for data_root in data_roots: 
@@ -39,11 +38,15 @@ class WsiPathUtil():
         patch_files = glob.glob(os.path.join(wsi_path, '*.jpg'))
         processes = []
         # 定义进程数
-        process_count = 4  # 假设使用4个进程
+        process_count = self.num_parallel  # 假设使用4个进程
         # 创建进程池
         pool = Pool(process_count)
         # 构建参数列表
         args_list = []
+        dest_wsi_path = os.path.join(self.output_root, 
+                                     os.path.relpath(wsi_path, self.wsi_root))
+        if not os.path.exists(dest_wsi_path):
+            os.makedirs(dest_wsi_path)
         for dice in topk_dices:
             source_path = patch_files[dice]
             rel_path = os.path.relpath(source_path, self.wsi_root)
@@ -72,6 +75,7 @@ def main(args):
     feature_root = args.feature_root
     train_label = args.train_label
     output_root = args.output_root
+    num_parallel = args.num_parallel
     if args.datasets.lower() == 'ngc':
         dataset_p, dataset_l = [], []
         with open(train_label, 'r') as file:
@@ -93,9 +97,9 @@ def main(args):
         'act': args.act,
         'input_dim': args.input_dim
     }
-    if model_type == 'mean_mil':
+    if model_type == 'meanmil':
         model = mean_max.MeanMIL(test=True, **model_args).to(device)
-    elif model_type == 'max_mil':
+    elif model_type == 'maxmil':
         model = mean_max.MaxMIL(test=True, **model_args).to(device)
     
     # load checkpoint
@@ -106,7 +110,7 @@ def main(args):
     model.load_state_dict(ckp)
 
     # inference
-    wsi_util = WsiPathUtil(wsi_root, output_root)
+    wsi_util = WsiPathUtil(wsi_root, output_root, num_parallel)
     loader_args = {
         'batch_size': args.batch_size,
         'num_workers': args.num_workers,
@@ -148,18 +152,14 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', default=1, type=int, help='Number of batch size')
     
     parser.add_argument('--seed', default=2023, type=int)
-    parser.add_argument('--ckp_path', default='/root/project/BiomedCLIP-PUNCE/mil-methods/output-model/output-test/resnet1-meanmil-ngc/fold_0_model_best_auc.pt', type=str)
+    parser.add_argument('--ckp_path', default='/root/project/BiomedCLIP-PUNCE/mil-methods/output-model/output-test/resnet1-meanmil-ngc-customsplit-tmp/fold_0_model_best_auc.pt', type=str)
     # Output
-    parser.add_argument('--output_root', default='/root/commonfile/wsi/output-filter/ngc-meanmil/', type=str, help='output path')
+    parser.add_argument('--output_root', default='/root/commonfile/wsi/output-filter/test-ngc-meanmil/', type=str, help='output path')
     parser.add_argument('--topk_num', default=50, type=int, help='topk_num')
+    # parallel
+    parser.add_argument('--num_parallel', default=16, type=int)
     
-    parser.add_argument('--multi_gpu', action='store_true', default=False)
-    parser.add_argument('--local_rank', type=int, default=0)
-    parser.add_argument('--world_size', type=int, default=1)
-
+    
     args = parser.parse_args()
-    if args.multi_gpu:
-        args.local_rank = int(os.environ['LOCAL_RANK'])
-        args.world_size = int(os.environ['WORLD_SIZE'])
     main(args)
     
