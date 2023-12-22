@@ -35,6 +35,7 @@ class WsiPathUtil():
 
     def saveSubimages(self, wsi_name, topk_dices):
         wsi_path = self.wsi_dict[wsi_name]
+        num_k = len(topk_dices)
         patch_files = glob.glob(os.path.join(wsi_path, '*.jpg'))
         processes = []
         # 定义进程数
@@ -45,8 +46,13 @@ class WsiPathUtil():
         args_list = []
         dest_wsi_path = os.path.join(self.output_root, 
                                      os.path.relpath(wsi_path, self.wsi_root))
-        if not os.path.exists(dest_wsi_path):
-            os.makedirs(dest_wsi_path)
+        if os.path.exists(dest_wsi_path):
+            if len(glob.glob(os.path.join(dest_wsi_path, '*.jpg'))) == num_k:
+                return
+            else:
+                os.rmdir(dir_path)
+        os.makedirs(dest_wsi_path)
+
         for dice in topk_dices:
             source_path = patch_files[dice]
             rel_path = os.path.relpath(source_path, self.wsi_root)
@@ -158,7 +164,6 @@ if __name__ == '__main__':
     parser.add_argument('--topk_num', default=50, type=int, help='topk_num')
     # parallel
     parser.add_argument('--num_parallel', default=16, type=int)
-    
     
     args = parser.parse_args()
     main(args)
