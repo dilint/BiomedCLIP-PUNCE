@@ -42,13 +42,65 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
+
 class CIFAR10Pair(CIFAR10):
-    """Generate mini-batche pairs on CIFAR10 training set."""
+    def __init__(self,
+                 transform,
+                 labeled: int = 10000,
+                 unlabeled: int = 40000,
+                 **kargs):
+        super().__init__(**kargs)        
+        self.transform = transform
+        self.labeled, self.unlabeled = labeled, unlabeled
+        self.targets = self._binarize_cifar10_class(self.targets)
+        self.data, self.targets, self.prior = self._make_pu_label_from_binary_label(self.data, self.targets)
+            
     def __getitem__(self, idx):
         img, target = self.data[idx], self.targets[idx]
         img = Image.fromarray(img)  # .convert('RGB')
         imgs = [self.transform(img), self.transform(img)]
         return torch.stack(imgs), target  # stack a positive pair
+    
+    ## add function ##
+    def _binarize_cifar10_class(self, y):
+        """将类别分为animal和vehicle"""
+        # 先转化为numpy
+        y = np.array(y)
+        y_bin = np.ones(len(y), dtype=int)
+        y_bin[(y == 2) | (y == 3) | (y == 4) | (y == 5) | (y == 6) | (y == 7)] = 0
+        return y_bin
+    
+    def _make_pu_label_from_binary_label(self, x, y):
+        """挑选出一定的正样本数作为已标注标签"""
+        """from https://github.com/kiryor/nnPUlearning"""
+        y = np.array(y)
+        labels = np.unique(y)
+        positive, negative = labels[1], labels[0]
+        labeled, unlabeled = self.labeled, self.unlabeled
+        assert(len(x) == len(y))
+        perm = np.random.permutation(len(y))
+        x, y = x[perm], y[perm]
+        n_p = (y == positive).sum()
+        n_lp = labeled
+        n_n = (y == negative).sum()
+        n_u = unlabeled
+        if labeled + unlabeled == len(x):
+            n_up = n_p - n_lp
+        elif unlabeled == len(x):
+            n_up = n_p
+        else:
+            raise ValueError("Only support |P|+|U|=|X| or |U|=|X|.")
+        _prior = float(n_up) / float(n_u)
+        xlp = x[y == positive][:n_lp]
+        xup = np.concatenate((x[y == positive][n_lp:], xlp), axis=0)[:n_up]
+        xun = x[y == negative]
+        x = np.asarray(np.concatenate((xlp, xup, xun), axis=0))
+        print(x.shape)
+        y = np.asarray(np.concatenate((np.ones(n_lp), -np.ones(n_u))))
+        perm = np.random.permutation(len(y))
+        y[y==-1]=negative
+        x, y = x[perm], y[perm]
+        return x, y, _prior
 
 class Whole_Slide_Patchs_Ngc(Dataset):
     def __init__(self,
@@ -95,7 +147,7 @@ class Whole_Slide_Patchs_Ngc(Dataset):
         return f'the length of patchs in {self.img_paths} is {self.__len__()}'
 
 
-def nt_xent(x, t=0.5):
+def infonce(x, t=0.5):
     x = F.normalize(x, dim=1)
     x_scores =  (x @ x.t()).clamp(min=1e-7)  # normalized cosine similarity scores
     x_scale = x_scores / t   # scale with temperature
@@ -109,6 +161,96 @@ def nt_xent(x, t=0.5):
     targets[::2] += 1  # target of 2k element is 2k+1
     targets[1::2] -= 1  # target of 2k+1 element is 2k
     return F.cross_entropy(x_scale, targets.long().to(x_scale.device))
+
+def punce(x, y, prior):
+    loss = 1
+    # im_q = x[0]
+    # im_k = x[1]
+    # # compute query features from encoder_q
+    # q = self.neck(self.backbone(im_q))[0]  # queries: NxC
+    # q = nn.functional.normalize(q, dim=1)
+
+    # # compute key features
+    # with torch.no_grad():  # no gradient to keys
+    #     # update the key encoder
+    #     self.encoder_k.update_parameters(
+    #         nn.Sequential(self.backbone, self.neck))
+
+    #     # shuffle for making use of BN
+    #     im_k, idx_unshuffle = batch_shuffle_ddp(im_k)
+
+    #     k = self.encoder_k(im_k)[0]  # keys: NxC
+    #     k = nn.functional.normalize(k, dim=1)
+
+    #     # undo shuffle
+    #     k = batch_unshuffle_ddp(k, idx_unshuffle)
+    
+    # labels = y
+    # # update the queue and queue_label
+    # self._dequeue_and_enqueue(k)
+    # self._dequeue_and_enqueue_label(labels)
+    
+    # # for debug to align with infoNCE
+    # if self.debug_infoNCE:
+    #     l_pos = torch.einsum('nc,nc->n', [q, k]).unsqueeze(-1)
+    #     # negative logits: NxK
+    #     l_neg = torch.einsum('nc,ck->nk', [q, self.queue.clone().detach()])
+    #     N = l_pos.size(0)
+    #     logits = torch.cat((l_pos, l_neg), dim=1)
+    #     logits /= self.temperature
+    #     labels = torch.zeros((N, ), dtype=torch.long).to(l_pos.device)
+
+    #     criterion = nn.CrossEntropyLoss()
+    #     loss = criterion(logits, labels)
+    #     losses = dict(loss=loss)    
+    #     return losses
+    
+    # # common negative item: Nx1
+    # neg_item = torch.einsum('nc,ck->nk', [q, self.queue.clone().detach()]) # NXK
+    # neg_item /= self.temperature
+    # neg_item = torch.exp(neg_item)
+    # neg_item = torch.sum(neg_item, dim=1)
+    # neg_item = torch.log(neg_item) # N
+    
+    # # for positive sample
+    # pos_index = labels==1
+    # pos_q = q[pos_index, :]
+    # neg_item_p = neg_item[pos_index]
+    
+    # pos_keys = self.queue_label==1  #  get positive samplesin queue
+    # pos_keys = self.queue.clone().detach()[:, pos_keys] # CxP
+    # n_pos_keys = pos_keys.shape[1]
+    # pos_item = torch.einsum('nc,cp->np', [pos_q, pos_keys]) # N_pxP
+    # pos_item /= self.temperature
+    
+    # l_p = torch.sum(pos_item, dim=1) # N_p
+    # l_p /= n_pos_keys
+    # l_p -= neg_item_p
+    # l_p = -torch.sum(l_p)
+    
+    # # for unlabeled sample
+    # unlabel_index = labels==-1
+    # unlabel_q = q[unlabel_index, :]
+    # unlabel_k = k[unlabel_index, :]
+    # neg_item_u = neg_item[unlabel_index]
+    
+    # un_q_k = torch.einsum('nc,nc->n', [unlabel_q, unlabel_k]).unsqueeze(-1) # N_nX1
+    # un_pos_item = torch.einsum('nc,cp->np', [unlabel_q, pos_keys]) # N_nXP
+    # un_pos_item = torch.cat((un_q_k, un_pos_item), dim=1) # N_nX(P+1)
+    # un_pos_item /= self.temperature
+    
+    # l_u_p = torch.sum(un_pos_item, dim=1) # N_n
+    # l_u_p = l_u_p / (n_pos_keys+1)
+    
+    # un_neg_item = un_q_k.squeeze(1) / self.temperature # N_n
+    # l_u_n = un_neg_item
+    
+    # l_u = self.prior * l_u_p + (1 - self.prior) * l_u_n # N_n
+    # l_u -= neg_item_u
+    # l_u = -torch.sum(l_u)
+    
+    # loss = (l_p + l_u) / q.shape[0]
+    return loss
 
 
 def get_lr(step, total_steps, lr_max, lr_min):
@@ -214,7 +356,11 @@ def train(args) -> None:
             optimizer.zero_grad()
             # feature, rep = model(x)
             rep = model(x)
-            loss = nt_xent(rep, args.temperature)
+            if args.loss_function == 'infonce':
+                loss = infonce(rep, args.temperature)
+            else:
+                loss = punce(rep, y, args.prior)
+                
             loss.backward()
             optimizer.step()
             scheduler.step()
@@ -246,7 +392,7 @@ if __name__ == '__main__':
     
     parser.add_argument('--auto_resume', action='store_true', help='automatically resume training')
     # dataset
-    parser.add_argument('--dataset', type=str, default='ngc', choices=['cifar10', 'ngc'])
+    parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'ngc'])
     parser.add_argument('--data_dir', type=str, default='/root/commonfile/wsi/ngc-2023-1333')
     parser.add_argument('--train_label_path', type=str, default='ngc_train_label.csv')
     # parser.add_argument('--target_patch_size', type=int, nargs='+', default=(1333, 800))
@@ -263,6 +409,8 @@ if __name__ == '__main__':
     parser.add_argument('--log_interval', default=10, type=int)
     
     # loss options
+    parser.add_argument('--loss_function', default='infonce', type=str, choices=['infonce', 'punce'])
+    parser.add_argument('--prior', default=0.25, type=float, help='prior parameter for punce')
     parser.add_argument('--optimzer', default='sgd', type=str, choices=['adam', 'sgd'])
     parser.add_argument('--learning_rate', default=0.6, type=float, help='initial lr = 0.3 * batch_size / 256')
     parser.add_argument('--momentum', default=0.9, type=float)
