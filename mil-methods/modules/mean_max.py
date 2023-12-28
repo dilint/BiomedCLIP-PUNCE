@@ -73,5 +73,5 @@ class MaxMIL(nn.Module):
             return self.foward_test(x)
         
         x = self.head(x)
-        x = x.max(dim=1)
+        x,_ = x.max(dim=1)
         return x
