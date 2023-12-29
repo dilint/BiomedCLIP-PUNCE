@@ -162,94 +162,61 @@ def infonce(x, t=0.5):
     targets[1::2] -= 1  # target of 2k+1 element is 2k
     return F.cross_entropy(x_scale, targets.long().to(x_scale.device))
 
-def punce(x, y, prior):
-    loss = 1
-    # im_q = x[0]
-    # im_k = x[1]
-    # # compute query features from encoder_q
-    # q = self.neck(self.backbone(im_q))[0]  # queries: NxC
-    # q = nn.functional.normalize(q, dim=1)
+def punce(x, y, prior, temperature):
+    device = x.device
+    x = F.normalize(x, dim=1)
+    y = y.unsqueeze(1).repeat(1, 2).reshape(-1)
+    
+    x_scores =  (x @ x.t()).clamp(min=1e-7)  # normalized cosine similarity scores
+    x_scale = x_scores / temperature   # scale with temperature
+    x_scale = x_scale - torch.eye(x_scale.size(0)).to(x_scale.device) * 1e5
 
-    # # compute key features
-    # with torch.no_grad():  # no gradient to keys
-    #     # update the key encoder
-    #     self.encoder_k.update_parameters(
-    #         nn.Sequential(self.backbone, self.neck))
+    # common negative item: Nx1
+    neg_item = torch.exp(x_scale)
+    neg_item = torch.sum(neg_item, dim=1)
+    
+    # for positive sample
+    pos_index = y==1
+    n_pos = len(pos_index)
+    pos_q = x[pos_index, :]
+    neg_item_p = neg_item[pos_index]
+    
+    pos_item = torch.einsum('nc,cp->np', [pos_q, pos_q.T]) / temperature # 2N*2N
+    pos_item = pos_item - torch.eye(pos_item.size(0)).to(device) * 1e5 # exclue self
+    pos_item = torch.exp(pos_item)
+    pos_item = pos_item / neg_item_p.unsqueeze(1) # N_px(N_p)
+    pos_item = pos_item + torch.eye(pos_item.size(0)).to(device) # exclue self
+    pos_item = torch.log(pos_item)
+    
+    l_p = torch.sum(pos_item, dim=1) # N_p
+    l_p /= (n_pos - 1)
+    l_p = -torch.sum(l_p)
+    
+    # for unlabeled sample
+    unlabel_index = y==0
+    unlabel_q = x[unlabel_index, :]
+    neg_item_u = neg_item[unlabel_index]
 
-    #     # shuffle for making use of BN
-    #     im_k, idx_unshuffle = batch_shuffle_ddp(im_k)
-
-    #     k = self.encoder_k(im_k)[0]  # keys: NxC
-    #     k = nn.functional.normalize(k, dim=1)
-
-    #     # undo shuffle
-    #     k = batch_unshuffle_ddp(k, idx_unshuffle)
+    homo_index = torch.arange(y.size()[0])
+    homo_index[::2] += 1  # target of 2k element is 2k+1
+    homo_index[1::2] -= 1  # target of 2k+1 element is 2k 
     
-    # labels = y
-    # # update the queue and queue_label
-    # self._dequeue_and_enqueue(k)
-    # self._dequeue_and_enqueue_label(labels)
+    l_q_k = F.cross_entropy(x_scores, homo_index.to(device), reduction='none')
+    l_q_k = l_q_k[unlabel_index]
+    l_q_k = torch.sum(l_q_k)
     
-    # # for debug to align with infoNCE
-    # if self.debug_infoNCE:
-    #     l_pos = torch.einsum('nc,nc->n', [q, k]).unsqueeze(-1)
-    #     # negative logits: NxK
-    #     l_neg = torch.einsum('nc,ck->nk', [q, self.queue.clone().detach()])
-    #     N = l_pos.size(0)
-    #     logits = torch.cat((l_pos, l_neg), dim=1)
-    #     logits /= self.temperature
-    #     labels = torch.zeros((N, ), dtype=torch.long).to(l_pos.device)
-
-    #     criterion = nn.CrossEntropyLoss()
-    #     loss = criterion(logits, labels)
-    #     losses = dict(loss=loss)    
-    #     return losses
+    un_pos_item = torch.einsum('nc,cp->np', [unlabel_q, pos_q.T]) # N_nXN_p
+    un_pos_item /= temperature
+    un_pos_item = torch.exp(un_pos_item)
+    un_pos_item = un_pos_item / neg_item_u.unsqueeze(1)
+    un_pos_item = torch.log(un_pos_item)
     
-    # # common negative item: Nx1
-    # neg_item = torch.einsum('nc,ck->nk', [q, self.queue.clone().detach()]) # NXK
-    # neg_item /= self.temperature
-    # neg_item = torch.exp(neg_item)
-    # neg_item = torch.sum(neg_item, dim=1)
-    # neg_item = torch.log(neg_item) # N
+    l_u_p = torch.sum(un_pos_item, dim=1) # N_n
+    l_u_p = l_u_p / (n_pos+1) * prior
+    l_u_p = -torch.sum(l_u_p)
+    l_u = l_u_p + (prior / (n_pos+1) + 1 - prior) * l_q_k
     
-    # # for positive sample
-    # pos_index = labels==1
-    # pos_q = q[pos_index, :]
-    # neg_item_p = neg_item[pos_index]
-    
-    # pos_keys = self.queue_label==1  #  get positive samplesin queue
-    # pos_keys = self.queue.clone().detach()[:, pos_keys] # CxP
-    # n_pos_keys = pos_keys.shape[1]
-    # pos_item = torch.einsum('nc,cp->np', [pos_q, pos_keys]) # N_pxP
-    # pos_item /= self.temperature
-    
-    # l_p = torch.sum(pos_item, dim=1) # N_p
-    # l_p /= n_pos_keys
-    # l_p -= neg_item_p
-    # l_p = -torch.sum(l_p)
-    
-    # # for unlabeled sample
-    # unlabel_index = labels==-1
-    # unlabel_q = q[unlabel_index, :]
-    # unlabel_k = k[unlabel_index, :]
-    # neg_item_u = neg_item[unlabel_index]
-    
-    # un_q_k = torch.einsum('nc,nc->n', [unlabel_q, unlabel_k]).unsqueeze(-1) # N_nX1
-    # un_pos_item = torch.einsum('nc,cp->np', [unlabel_q, pos_keys]) # N_nXP
-    # un_pos_item = torch.cat((un_q_k, un_pos_item), dim=1) # N_nX(P+1)
-    # un_pos_item /= self.temperature
-    
-    # l_u_p = torch.sum(un_pos_item, dim=1) # N_n
-    # l_u_p = l_u_p / (n_pos_keys+1)
-    
-    # un_neg_item = un_q_k.squeeze(1) / self.temperature # N_n
-    # l_u_n = un_neg_item
-    
-    # l_u = self.prior * l_u_p + (1 - self.prior) * l_u_n # N_n
-    # l_u -= neg_item_u
-    # l_u = -torch.sum(l_u)
-    
-    # loss = (l_p + l_u) / q.shape[0]
+    loss = (l_p + l_u) / x.shape[0]
     return loss
 
 
@@ -359,7 +326,7 @@ def train(args) -> None:
             if args.loss_function == 'infonce':
                 loss = infonce(rep, args.temperature)
             else:
-                loss = punce(rep, y, args.prior)
+                loss = punce(rep, y, args.prior, args.temperature)
                 
             loss.backward()
             optimizer.step()
@@ -393,7 +360,7 @@ if __name__ == '__main__':
     parser.add_argument('--auto_resume', action='store_true', help='automatically resume training')
     # dataset
     parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'ngc'])
-    parser.add_argument('--data_dir', type=str, default='/root/commonfile/wsi/ngc-2023-1333')
+    parser.add_argument('--data_dir', type=str, default='/home/huangjialong/projects/SimCLR-CIFAR10/data')
     parser.add_argument('--train_label_path', type=str, default='ngc_train_label.csv')
     # parser.add_argument('--target_patch_size', type=int, nargs='+', default=(1333, 800))
     
@@ -409,7 +376,7 @@ if __name__ == '__main__':
     parser.add_argument('--log_interval', default=10, type=int)
     
     # loss options
-    parser.add_argument('--loss_function', default='infonce', type=str, choices=['infonce', 'punce'])
+    parser.add_argument('--loss_function', default='punce', type=str, choices=['infonce', 'punce'])
     parser.add_argument('--prior', default=0.25, type=float, help='prior parameter for punce')
     parser.add_argument('--optimzer', default='sgd', type=str, choices=['adam', 'sgd'])
     parser.add_argument('--learning_rate', default=0.6, type=float, help='initial lr = 0.3 * batch_size / 256')
