@@ -103,6 +103,8 @@ class CIFAR10Pair(CIFAR10):
         return x, y, _prior
 
 class Whole_Slide_Patchs_Ngc(Dataset):
+    # pos is 0 and neg is 1, because all patches of the neg wsi are neg,
+    # but pos wsi includes pos and neg patches 
     def __init__(self,
                  data_dir,
                  train_label_path,
@@ -137,8 +139,11 @@ class Whole_Slide_Patchs_Ngc(Dataset):
         
     def __getitem__(self, idx):
         img = Image.open(self.img_paths[idx])
+        target = 0 
+        if 'NILM' in str(self.img_paths[idx]):
+            target = 1
         imgs =  [self.transform(img), self.transform(img)]
-        return torch.stack(imgs), 1
+        return torch.stack(imgs), target
     
     def __len__(self):
         return len(self.img_paths)
@@ -288,13 +293,6 @@ def train(args) -> None:
     if args.ddp:
         model = nn.parallel.DistributedDataParallel(model)
         
-    
-    	# print_network(model)
-    # if torch.cuda.device_count() > 1:
-    #     model = nn.DataParallel(model)
-    # logger.info('Base model: {}'.format(args.backbone))
-    # logger.info('feature dim: {}, projection dim: {}'.format(model.feature_dim, args.projection_dim))
-
     optimizer = torch.optim.SGD(
         model.parameters(),
         args.learning_rate,
@@ -359,9 +357,9 @@ if __name__ == '__main__':
     
     parser.add_argument('--auto_resume', action='store_true', help='automatically resume training')
     # dataset
-    parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'ngc'])
-    parser.add_argument('--data_dir', type=str, default='/home/huangjialong/projects/SimCLR-CIFAR10/data')
-    parser.add_argument('--train_label_path', type=str, default='ngc_train_label.csv')
+    parser.add_argument('--dataset', type=str, default='ngc', choices=['cifar10', 'ngc'])
+    parser.add_argument('--data_dir', type=str, default='/home1/wsi/ngc-2023-1333/')
+    parser.add_argument('--train_label_path', type=str, default='../datatools/ngc_labels/ngc_train_label.csv')
     # parser.add_argument('--target_patch_size', type=int, nargs='+', default=(1333, 800))
     
     # model
