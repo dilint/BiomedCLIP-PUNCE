@@ -359,7 +359,7 @@ if __name__ == '__main__':
     # dataset
     parser.add_argument('--dataset', type=str, default='ngc', choices=['cifar10', 'ngc'])
     parser.add_argument('--data_dir', type=str, default='/home1/wsi/ngc-2023-1333/')
-    parser.add_argument('--train_label_path', type=str, default='../datatools/ngc_labels/ngc_train_label.csv')
+    parser.add_argument('--train_label_path', type=str, default='../datatools/ngc_labels/train_label.csv')
     # parser.add_argument('--target_patch_size', type=int, nargs='+', default=(1333, 800))
     
     # model

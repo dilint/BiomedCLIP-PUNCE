@@ -839,9 +839,9 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, help='Output path')
 
     args = parser.parse_args()
-    args.train_label_path = os.path.join(args.label_path, 'ngc_train_label.csv')
-    args.val_label_path = os.path.join(args.label_path, 'ngc_val_label.csv')
-    args.test_label_path = os.path.join(args.label_path, 'ngc_test_label.csv')
+    args.train_label_path = os.path.join(args.label_path, 'train_label.csv')
+    args.val_label_path = os.path.join(args.label_path, 'val_label.csv')
+    args.test_label_path = os.path.join(args.label_path, 'test_label.csv')
     
     if not os.path.exists(os.path.join(args.model_path,args.project)):
         os.mkdir(os.path.join(args.model_path,args.project))
