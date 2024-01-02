@@ -2,10 +2,12 @@
 
 ## Requirement
 ```bash
-pip install open_clip_torch transformers matplotlib
-pip install h5py
-pip install scikit-learn
-pip install future
+conda create -n biomed python=3.8
+pip install jupyter
+conda install pytorch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 cudatoolkit=11.3 -c pytorch
+pip install open-clip-torch==2.20.0 transformers==4.30.2 matplotlib
+pip install h5py scikit-learn==0.22.1 future==0.18.3
+pip install wandb==0.15 torchsummary==1.5.1
 ```
 
 ## Train Backbone
