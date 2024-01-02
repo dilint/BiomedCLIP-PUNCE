@@ -32,7 +32,7 @@ class Whole_Slide_Patchs_Ngc(Dataset):
         if preprocess != None:
             self.preprocess = preprocess
         self.wsi_path = wsi_path
-        self.patch_files = glob.glob(os.path.join(wsi_path, '*.jpg'))
+        self.patch_files = glob.glob(os.path.join(wsi_path, '*.jpg')) + glob.glob(os.path.join(wsi_path, '*.png'))
         
     def __getitem__(self, idx):
         img = Image.open(self.patch_files[idx])
@@ -81,6 +81,7 @@ def compute_w_loader(wsi_dir,
 def main():
     # set argsrget_patch
     parser = argparse.ArgumentParser(description='NGC dataset Feature Extraction')
+    parser.add_argument('--dataset', type=str, default='ngc', choices=['ngc', 'ubc'])
     parser.add_argument('--wsi_root', type=str, default='root/commonfile/wsi/ngc-2023-133')
     parser.add_argument('--output_path', type=str, default='result-final-ngc-features')
     parser.add_argument('--feat_dir', type=str, default='resnet-ori-test')
@@ -101,26 +102,31 @@ def main():
     if args.multi_gpu:
         args.local_rank = int(os.environ['LOCAL_RANK'])
         args.world_size = int(os.environ['WORLD_SIZE'])
+
     
     # get wsi paths
-    # set data roots
     wsi_root = args.wsi_root
-    sub_paths = [
-        'Unannotated_KSJ/Unannotated-KSJ-TCTNGC-NILM',
-        'Unannotated_KSJ/Unannotated-KSJ-TCTNGC-POS',
-        'Unannotated_XIMEA/Unannotated-XIMEA-TCTNGC-NILM',
-        'Unannotated_XIMEA/Unannotated-XIMEA-TCTNGC-POS'
-    ]
-    data_roots = list(map(lambda x: os.path.join(wsi_root, x), sub_paths)) 
-    wsi_dirs = []
+    if args.dataset == 'ngc':
+        sub_paths = [
+            'Unannotated_KSJ/Unannotated-KSJ-TCTNGC-NILM',
+            'Unannotated_KSJ/Unannotated-KSJ-TCTNGC-POS',
+            'Unannotated_XIMEA/Unannotated-XIMEA-TCTNGC-NILM',
+            'Unannotated_XIMEA/Unannotated-XIMEA-TCTNGC-POS'
+        ]
+        data_roots = list(map(lambda x: os.path.join(wsi_root, x), sub_paths)) 
+        wsi_dirs = []
+
+        for data_root in data_roots:
+            wsi_dirs.extend([os.path.join(data_root, subdir) for subdir in os.listdir(data_root)])
+            
+    elif args.dataset == 'ubc':
+        wsi_dirs = [os.path.join(wsi_root, subdir) for subdir in os.listdir(wsi_root)]
+        
+    # get output path
     output_path = args.output_path
     output_path = os.path.join(output_path, args.feat_dir)
     output_path_pt = os.path.join(output_path, 'pt')
     output_path_h5 = os.path.join(output_path, 'h5_files')
-    for data_root in data_roots:
-        wsi_dirs.extend([os.path.join(data_root, subdir) for subdir in os.listdir(data_root)])
-
-    # get output path
     os.makedirs(output_path_pt, exist_ok=True)
     os.makedirs(output_path_h5, exist_ok=True)
     dest_files = os.listdir(output_path_pt)
@@ -131,7 +137,6 @@ def main():
     print('loading model')
     preprocess_val = None
     if args.base_model == 'resnet50':
-        
         if args.ckp_path:
             model = resnet50_baseline(pretrained=False, hideLayer=True)
             new_ckp = dict()
