@@ -87,6 +87,7 @@ CUDA_VISIBLE_DEVICES=0, python3 main_custome.py --project=$PROJECT_NAME --datase
 
 
 ## 复杂流程
+![structure](imgs/structure.jpg)
 
 ```bash
 # 以下时间为一张或者四张3080上的运行结果
