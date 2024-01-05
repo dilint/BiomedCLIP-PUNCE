@@ -361,7 +361,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
 
         if args.always_test:
 
-            _te_accuracy, _te_auc_value, _te_precision, _te_recall, _te_fscore,_te_test_loss_log = test(args,model,test_loader,device,criterion,model_tea)
+            _te_accuracy, _te_auc_value, _te_precision, _te_recall, _te_fscore,_te_test_loss_log = val_loop(args,model,test_loader,device,criterion,model_tea,test_mode=True)
             
             if args.wandb:
                 rowd = OrderedDict([
@@ -388,7 +388,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
                     wandb.log(rowd)
             
             if model_tea is not None:
-                _te_tea_accuracy, _te_tea_auc_value, _te_tea_precision, _te_tea_recall, _te_tea_fscore,_te_tea_test_loss_log = test(args,model_tea,test_loader,device,criterion,model_tea)
+                _te_tea_accuracy, _te_tea_auc_value, _te_tea_precision, _te_tea_recall, _te_tea_fscore,_te_tea_test_loss_log = val_loop(args,model_tea,test_loader,device,criterion,model_tea,test_mode=True)
             
                 if args.wandb:
                     rowd = OrderedDict([
@@ -495,7 +495,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
             info = model_tea.load_state_dict(best_std['teacher'])
             print(info)
 
-    accuracy, auc_value, precision, recall, fscore,test_loss_log = test(args,model,test_loader,device,criterion,model_tea)
+    accuracy, auc_value, precision, recall, fscore,test_loss_log = val_loop(args,model,test_loader,device,criterion,model_tea,test_mode=True)
     
     if args.wandb:
         wandb.log({
@@ -634,12 +634,12 @@ def train_loop(args,model,model_tea,loader,optimizer,device,amp_autocast,criteri
     
     return train_loss_log,start,end
 
-def val_loop(args,model,loader,device,criterion,early_stopping,epoch,model_tea=None):
+def val_loop(args,model,loader,device,criterion,early_stopping,epoch,model_tea=None,test_mode=False):
     if model_tea is not None:
         model_tea.eval()
     model.eval()
     loss_cls_meter = AverageMeter()
-    bag_logit, bag_labels=[], []
+    bag_logits, bag_labels=[], []
 
     with torch.no_grad():
         for i, data in enumerate(loader):
@@ -668,91 +668,41 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,model_tea=N
             if args.loss == 'ce':
                 if (args.model == 'dsmil' and args.ds_average) or (args.model == 'mhim' and isinstance(test_logits,(list,tuple))):
                     test_loss = criterion(test_logits[0].view(batch_size,-1),label)
-                    bag_logit.append((0.5*torch.softmax(test_logits[1],dim=-1)+0.5*torch.softmax(test_logits[0],dim=-1))[:,1].cpu().squeeze().numpy())
+                    bag_logits.append((0.5*torch.softmax(test_logits[1],dim=-1)+0.5*torch.softmax(test_logits[0],dim=-1))[:,1].cpu().squeeze().numpy())
                 else:
                     test_loss = criterion(test_logits.view(batch_size,-1),label)
-                    if batch_size > 1:
-                        bag_logit.extend(torch.softmax(test_logits,dim=-1)[:,1].cpu().squeeze().numpy())
+                    if args.n_classes == 2:
+                        bag_logits.extend(torch.softmax(test_logits,dim=-1)[:,1].cpu().numpy())
                     else:
-                        bag_logit.append(torch.softmax(test_logits,dim=-1)[:,1].cpu().squeeze().numpy())
+                        bag_logits.extend(torch.softmax(test_logits, dim=-1).cpu().numpy())
+            # TODO have not updated            
             elif args.loss == 'bce':
                 if args.model == 'dsmil' and args.ds_average:
                     test_loss = criterion(test_logits.view(batch_size,-1),label)
-                    bag_logit.append((0.5*torch.sigmoid(test_logits[1])+0.5*torch.sigmoid(test_logits[0]).cpu().squeeze().numpy()))
+                    bag_logits.append((0.5*torch.sigmoid(test_logits[1])+0.5*torch.sigmoid(test_logits[0]).cpu().squeeze().numpy()))
                 else:
                     test_loss = criterion(test_logits[0].view(batch_size,-1),label.view(batch_size,-1).float())
-                    
-                    bag_logit.append(torch.sigmoid(test_logits).cpu().squeeze().numpy())
+                    bag_logits.append(torch.sigmoid(test_logits).cpu().squeeze().numpy())
 
             loss_cls_meter.update(test_loss,1)
     
     # save the log file
-    accuracy, auc_value, precision, recall, fscore = five_scores(bag_labels, bag_logit)
-    
-    # early stop
-    if early_stopping is not None:
-        early_stopping(epoch,-auc_value,model)
-        stop = early_stopping.early_stop
+    if args.n_classes == 2:
+        accuracy, auc_value, precision, recall, fscore = five_scores(bag_labels, bag_logits)
     else:
-        stop = False
-    return stop,accuracy, auc_value, precision, recall, fscore,loss_cls_meter.avg
-
-def test(args,model,loader,device,criterion,model_tea=None):
-    if model_tea is not None:
-        model_tea.eval()
-    model.eval()
-    test_loss_log = 0.
-    bag_logit, bag_labels=[], []
-
-    with torch.no_grad():
-        for i, data in enumerate(loader):
-            if len(data[1]) > 1:
-                bag_labels.extend(data[1].tolist())
-            else:
-                bag_labels.append(data[1].item())
-                
-            if isinstance(data[0],(list,tuple)):
-                for i in range(len(data[0])):
-                    data[0][i] = data[0][i].to(device)
-                bag=data[0]
-                batch_size=data[0][0].size(0)
-            else:
-                bag=data[0].to(device)  # b*n*1024
-                batch_size=bag.size(0)
-
-            label=data[1].to(device)
-            if args.model in ('mhim','pure'):
-                test_logits = model.forward_test(bag)
-            elif args.model == 'dsmil':
-                test_logits,_ = model(bag)
-            else:
-                test_logits = model(bag)
-
-            if args.loss == 'ce':
-                if (args.model == 'dsmil' and args.ds_average) or (args.model == 'mhim' and isinstance(test_logits,(list,tuple))):
-                    test_loss = criterion(test_logits[0].view(batch_size,-1),label)
-                    bag_logit.append((0.5*torch.softmax(test_logits[1],dim=-1)+0.5*torch.softmax(test_logits[0],dim=-1))[:,1].cpu().squeeze().numpy())
-                else:
-                    test_loss = criterion(test_logits.view(batch_size,-1),label)
-                    if batch_size > 1:
-                        bag_logit.extend(torch.softmax(test_logits,dim=-1)[:,1].cpu().squeeze().numpy())
-                    else:
-                        bag_logit.append(torch.softmax(test_logits,dim=-1)[:,1].cpu().squeeze().numpy())
-            elif args.loss == 'bce':
-                if args.model == 'dsmil' and args.ds_average:
-                    test_loss = criterion(test_logits[0].view(batch_size,-1),label)
-                    bag_logit.append((0.5*torch.sigmoid(test_logits[1])+0.5*torch.sigmoid(test_logits[0]).cpu().squeeze().numpy()))
-                else:
-                    test_loss = criterion(test_logits.view(batch_size,-1),label.view(1,-1).float())
-                bag_logit.append(torch.sigmoid(test_logits).cpu().squeeze().numpy())
-
-            test_loss_log = test_loss_log + test_loss.item()
-    
-    # save the log file
-    accuracy, auc_value, precision, recall, fscore = five_scores(bag_labels, bag_logit)
-    test_loss_log = test_loss_log/len(loader)
-
-    return accuracy, auc_value, precision, recall, fscore,test_loss_log
+        accuracy, recall, precision, fscore = multi_class_scores(bag_labels, bag_logits)
+        auc_value = 0
+    if test_mode:
+        return accuracy, auc_value, precision, recall, fscore, loss_cls_meter.avg
+    else:
+        # val mode detect early stopping
+        # early stop
+        if early_stopping is not None:
+            early_stopping(epoch,-auc_value,model)
+            stop = early_stopping.early_stop
+        else:
+            stop = False
+        return stop,accuracy, auc_value, precision, recall, fscore,loss_cls_meter.avg
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MIL Training Script')

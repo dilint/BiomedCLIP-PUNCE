@@ -1,5 +1,7 @@
 import numpy as np
 from sklearn.metrics import roc_curve, roc_auc_score, precision_recall_fscore_support, accuracy_score
+from sklearn.metrics import average_precision_score,precision_score,f1_score,recall_score
+
 import torch
 import os
 
@@ -107,6 +109,16 @@ def five_scores(bag_labels, bag_predictions):
     accuracy = accuracy_score(bag_labels, bag_predictions)
     # accuracy = 1- np.count_nonzero(np.array(bag_labels).astype(int)- bag_predictions.astype(int)) / len(bag_labels)
     return accuracy, auc_value, precision, recall, fscore
+
+def multi_class_scores(bag_labels, bag_logits):
+    bag_labels = np.array(bag_labels)
+    bag_logits = np.array(bag_logits)
+    bag_pred = np.argmax(bag_logits, axis=-1)
+    accuracy = accuracy_score(bag_labels, bag_pred)
+    recall = recall_score(bag_labels, bag_pred, average='macro')
+    precision = precision_score(bag_labels, bag_pred, average='macro')
+    fscore = f1_score(bag_labels, bag_pred, average='macro')
+    return accuracy, recall, precision, fscore
 
 def cosine_scheduler(base_value, final_value, epochs, niter_per_ep, warmup_epochs=0, start_warmup_value=0):
     warmup_schedule = np.array([])
