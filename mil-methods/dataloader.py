@@ -188,8 +188,10 @@ class C16Dataset(Dataset):
         if self.persistence:
             features = self.feats[idx]
         else:
-            dir_path = os.path.join(self.root,"pt")
-
+            if "pt" in os.listdir(self.root):
+                dir_path = os.path.join(self.root,"pt")
+            else:
+                dir_path = self.root
             file_path = os.path.join(dir_path, self.file_name[idx]+'.pt')
             features = torch.load(file_path)
 

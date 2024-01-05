@@ -830,13 +830,13 @@ if __name__ == '__main__':
 
     # Misc
     parser.add_argument('--title', default='default', type=str, help='Title of exp')
-    parser.add_argument('--project', default='mil_new_c16', type=str, help='Project name of exp')
+    parser.add_argument('--project', default='output-test', type=str, help='Project name of exp')
     parser.add_argument('--log_iter', default=100, type=int, help='Log Frequency')
     parser.add_argument('--amp', action='store_true', help='Automatic Mixed Precision Training')
     parser.add_argument('--wandb', action='store_true', help='Weight&Bias')
     parser.add_argument('--num_workers', default=2, type=int, help='Number of workers in the dataloader')
     parser.add_argument('--no_log', action='store_true', help='Without log')
-    parser.add_argument('--model_path', type=str, help='Output path')
+    parser.add_argument('--model_path', type=str, default='output-model', help='Output path')
 
     args = parser.parse_args()
     args.train_label_path = os.path.join(args.label_path, 'train_label.csv')
