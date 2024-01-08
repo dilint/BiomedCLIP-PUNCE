@@ -81,7 +81,7 @@ def compute_w_loader(wsi_dir,
 def main():
     # set argsrget_patch
     parser = argparse.ArgumentParser(description='NGC dataset Feature Extraction')
-    parser.add_argument('--dataset', type=str, default='ngc', choices=['ngc', 'ubc'])
+    parser.add_argument('--dataset', type=str, default='ngc', choices=['ngc', 'ubc', 'tct'])
     parser.add_argument('--wsi_root', type=str, default='root/commonfile/wsi/ngc-2023-133')
     parser.add_argument('--output_path', type=str, default='result-final-ngc-features')
     parser.add_argument('--feat_dir', type=str, default='resnet-ori-test')
@@ -118,9 +118,19 @@ def main():
 
         for data_root in data_roots:
             wsi_dirs.extend([os.path.join(data_root, subdir) for subdir in os.listdir(data_root)])
+    
+    elif args.dataset == 'tct':
+        sub_paths = [
+            'NILM',
+            'POS'
+        ]
+        wsi_dirs = []
+        for sub_path in sub_paths:
+            wsi_dirs.extend([os.path.join(wsi_root, sub_path, wsi_name) for wsi_name in os.listdir(os.path.join(wsi_root, sub_path))])
             
     elif args.dataset == 'ubc':
         wsi_dirs = [os.path.join(wsi_root, subdir) for subdir in os.listdir(wsi_root)]
+    
         
     # get output path
     output_path = args.output_path
