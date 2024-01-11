@@ -495,7 +495,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
             info = model_tea.load_state_dict(best_std['teacher'])
             print(info)
 
-    accuracy, auc_value, precision, recall, fscore,test_loss_log = val_loop(args,model,test_loader,device,criterion,model_tea,test_mode=True)
+    accuracy, auc_value, precision, recall, fscore,test_loss_log = val_loop(args,model,test_loader,device,criterion,model_tea,epoch,test_mode=True)
     
     if args.wandb:
         wandb.log({
@@ -690,8 +690,7 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,model_tea=N
     if args.n_classes == 2:
         accuracy, auc_value, precision, recall, fscore = five_scores(bag_labels, bag_logits)
     else:
-        accuracy, recall, precision, fscore = multi_class_scores(bag_labels, bag_logits)
-        auc_value = 0
+        auc_value, accuracy, recall, precision, fscore = multi_class_scores(bag_labels, bag_logits)
     if test_mode:
         return accuracy, auc_value, precision, recall, fscore, loss_cls_meter.avg
     else:

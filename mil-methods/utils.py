@@ -112,13 +112,22 @@ def five_scores(bag_labels, bag_predictions):
 
 def multi_class_scores(bag_labels, bag_logits):
     bag_labels = np.array(bag_labels)
+    n_classes = max(bag_labels) + 1
+    bag_labels_one_hot = np.eye(n_classes)[bag_labels]
+
     bag_logits = np.array(bag_logits)
     bag_pred = np.argmax(bag_logits, axis=-1)
     accuracy = accuracy_score(bag_labels, bag_pred)
     recall = recall_score(bag_labels, bag_pred, average='macro')
     precision = precision_score(bag_labels, bag_pred, average='macro')
     fscore = f1_score(bag_labels, bag_pred, average='macro')
-    return accuracy, recall, precision, fscore
+    roc_auc = dict()
+    for i in range(n_classes):
+        roc_auc[i] = roc_auc_score(bag_labels_one_hot[:, i], bag_logits[:, i])
+    roc_auc = list(roc_auc.values())
+    roc_auc_macro = np.mean(roc_auc)
+    roc_auc_macro
+    return roc_auc_macro, accuracy, recall, precision, fscore
 
 def cosine_scheduler(base_value, final_value, epochs, niter_per_ep, warmup_epochs=0, start_warmup_value=0):
     warmup_schedule = np.array([])
