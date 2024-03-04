@@ -83,10 +83,7 @@ def compute_w_loader(wsi_dir,
             if i % print_every == 0:
                 print('batch {}/{}, {} files processed'.format(i, len(loader), i * batch_size))
             batch = batch.to(device)
-            if args.base_model == 'biomedclip':
-                features, text_features, logit_scale = model(batch) 
-            else:
-                features = model(batch)
+            features, text_features, logit_scale = model(batch) 
             features = features.cpu().numpy()
             
             asset_dict = {'features': features}
