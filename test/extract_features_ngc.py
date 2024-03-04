@@ -53,7 +53,7 @@ class Whole_Slide_Patchs_Ngc(Dataset):
     def __getitem__(self, idx):
         img = Image.open(self.patch_files[idx])
         img = self.preprocess(img)
-        return img
+        return img, os.path.basename(self.patch_files[idx])
     
     def __len__(self):
         return len(self.patch_files)
@@ -78,12 +78,12 @@ def compute_w_loader(wsi_dir,
         print('processing {}: total of {} batches'.format(wsi_dir,len(loader)))
     
     mode = 'w'
-    for i, batch in enumerate(loader):
+    for i, (batch, wsi_names) in enumerate(loader):
         with torch.no_grad():
             if i % print_every == 0:
                 print('batch {}/{}, {} files processed'.format(i, len(loader), i * batch_size))
             batch = batch.to(device)
-            features, text_features, logit_scale = model(batch) 
+            features, text_features, logit_scale = model(batch)
             features = features.cpu().numpy()
             
             asset_dict = {'features': features}
