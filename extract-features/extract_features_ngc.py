@@ -164,7 +164,6 @@ def main():
         model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms('hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224')
 
     model = model.to(device)
-    
     model.eval()
     total = len(wsi_dirs)    
 
