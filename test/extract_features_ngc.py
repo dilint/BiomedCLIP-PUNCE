@@ -94,7 +94,7 @@ def compute_w_loader(wsi_dir,
 def main():
     # set argsrget_patch
     parser = argparse.ArgumentParser(description='NGC dataset Feature Extraction')
-    parser.add_argument('--wsi_root', type=str, default='/root/commonfile/wsi')
+    parser.add_argument('--wsi_root', type=str, default='/home1/wsi')
     parser.add_argument('--output_path', type=str, default='result-final-ngc-features')
     parser.add_argument('--verbose', type=int, default=0)
     parser.add_argument('--print_every', type=int, default=20)
@@ -127,7 +127,6 @@ def main():
     total = len(wsi_dirs)    
 
     for idx in range(total):
-        
         wsi_dir = wsi_dirs[idx]
         wsi_name = os.path.basename(wsi_dir)
         print('\nprogress: {}/{}'.format(idx, total))
