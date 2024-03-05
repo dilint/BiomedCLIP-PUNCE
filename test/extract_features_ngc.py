@@ -81,6 +81,7 @@ def compute_w_loader(wsi_dir,
     
     mode = 'w'
     for i, (batch, wsi_names) in enumerate(loader):
+        print(i, wsi_names)
         with torch.no_grad():
             if i % print_every == 0:
                 print('batch {}/{}, {} files processed'.format(i, len(loader), i * batch_size))
