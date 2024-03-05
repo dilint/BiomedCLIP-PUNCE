@@ -48,7 +48,9 @@ class Whole_Slide_Patchs_Ngc(Dataset):
         if preprocess != None:
             self.preprocess = preprocess
         self.wsi_path = wsi_path
-        self.patch_files = glob.glob(os.path.join(wsi_path, '*.jpg')) + glob.glob(os.path.join(wsi_path, '*.png'))
+        patch_files = glob.glob(os.path.join(wsi_path, '*.jpg')) + glob.glob(os.path.join(wsi_path, '*.png'))
+        self.patch_files = sorted(patch_files, key=lambda x: (int(os.path.basename(x).split(".")[0].split("_")[0]), 
+                int(os.path.basename(x).split(".")[0].split("_")[1])))
         
     def __getitem__(self, idx):
         img = Image.open(self.patch_files[idx])
