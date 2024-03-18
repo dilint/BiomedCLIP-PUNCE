@@ -224,11 +224,9 @@ def punce(x, y, prior, temperature):
     loss = (l_p + l_u) / x.shape[0]
     return loss
 
-
 def get_lr(step, total_steps, lr_max, lr_min):
     """Compute learning rate according to cosine annealing schedule."""
     return lr_min + (lr_max - lr_min) * 0.5 * (1 + np.cos(step / total_steps * np.pi))
-
 
 # color distortion composed by color jittering and color dropping.
 # See Section A of SimCLR: https://arxiv.org/abs/2002.05709
@@ -240,12 +238,15 @@ def get_color_distortion(s=0.5):  # 0.5 for CIFAR10 by default
     color_distort = transforms.Compose([rnd_color_jitter, rnd_gray])
     return color_distort
 
-
 def train(args) -> None:
     assert torch.cuda.is_available()
     cudnn.benchmark = True
 
-    train_transform = transforms.Compose([transforms.RandomResizedCrop(224),
+    # train_transform = transforms.Compose([transforms.RandomResizedCrop(224),
+    #                                       transforms.RandomHorizontalFlip(p=0.5),
+    #                                       get_color_distortion(s=0.5),
+    #                                       transforms.ToTensor()])
+    train_transform = transforms.Compose([transforms.Resize((224, 224)),
                                           transforms.RandomHorizontalFlip(p=0.5),
                                           get_color_distortion(s=0.5),
                                           transforms.ToTensor()])
@@ -413,5 +414,3 @@ if __name__ == '__main__':
                 wandb.init(project=args.project, name=args.title,config=args,dir=os.path.join(args.model_path))
         
     train(args)
-
-
