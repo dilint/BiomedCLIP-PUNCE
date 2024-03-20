@@ -4,6 +4,7 @@ import logging
 
 import numpy as np
 from PIL import Image
+import jpeg4py as jpeg
 import glob
 
 import torch
@@ -108,7 +109,8 @@ class Whole_Slide_Patchs_Ngc(Dataset):
     def __init__(self,
                  data_dir,
                  train_label_path,
-                 transform):
+                 transform,
+                 load_cpu,):
         # get img_path
         sub_paths = [
             'Unannotated_KSJ/Unannotated-KSJ-TCTNGC-NILM',
@@ -136,11 +138,21 @@ class Whole_Slide_Patchs_Ngc(Dataset):
         self.img_paths = img_paths
         # the size is too big
         self.transform = transform
+        self.load_cpu = False
+        if load_cpu:
+            self.load_cpu = True
+            self.imgs = []
+            for img_path in self.img_paths:
+                self.imgs.append(Image.open(img_path))
         
     def __getitem__(self, idx):
-        img = Image.open(self.img_paths[idx])
+        path = self.img_paths[idx]
+        if self.load_cpu:
+            img = self.imgs[idx]
+        else:
+            img = Image.open(path)
         target = 0 
-        if 'NILM' in str(self.img_paths[idx]):
+        if 'NILM' in str(path):
             target = 1
         imgs =  [self.transform(img), self.transform(img)]
         return torch.stack(imgs), target
@@ -242,14 +254,14 @@ def train(args) -> None:
     assert torch.cuda.is_available()
     cudnn.benchmark = True
 
-    # train_transform = transforms.Compose([transforms.RandomResizedCrop(224),
-    #                                       transforms.RandomHorizontalFlip(p=0.5),
-    #                                       get_color_distortion(s=0.5),
-    #                                       transforms.ToTensor()])
-    train_transform = transforms.Compose([transforms.Resize((224, 224)),
+    train_transform = transforms.Compose([transforms.RandomResizedCrop(224),
                                           transforms.RandomHorizontalFlip(p=0.5),
                                           get_color_distortion(s=0.5),
                                           transforms.ToTensor()])
+    # train_transform = transforms.Compose([
+    #                                       transforms.RandomHorizontalFlip(p=0.5),
+    #                                       get_color_distortion(s=0.5),
+    #                                       transforms.ToTensor()])
     
     # set dataset 
     if args.dataset == 'cifar10':
@@ -261,7 +273,8 @@ def train(args) -> None:
         train_set = Whole_Slide_Patchs_Ngc(
             data_dir=args.data_dir,
             train_label_path=args.train_label_path,
-            transform=train_transform
+            transform=train_transform,
+            load_cpu=args.load_cpu
         )
     
     if args.ddp:
@@ -269,12 +282,13 @@ def train(args) -> None:
         train_loader = DataLoader(train_set, 
                                 batch_size=args.batch_size,
                                 shuffle=False,
+                                pin_memory=True,
                                 num_workers=args.workers,
                                 sampler=train_sampler)
     else:
         train_loader = DataLoader(train_set,
                                 batch_size=args.batch_size,
-                                shuffle=True,
+                                shuffle=False,
                                 num_workers=args.workers,
                                 drop_last=True)
     print(len(train_set))
@@ -343,7 +357,6 @@ def train(args) -> None:
                         }
                     )
             
-            
         # save checkpoint very log_interval epochs
         if args.ddp and args.local_rank != 0:
             pass
@@ -352,15 +365,16 @@ def train(args) -> None:
                 print("==> Save checkpoint. Train epoch {}, SimCLR loss: {:.4f}".format(epoch, loss_meter.avg))
                 torch.save(model.state_dict(), os.path.join(args.model_path, '{}_epoch{}.pt'.format(args.title, epoch)))
 
-
+    
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='PyTorch SimCLR Training')
     
     parser.add_argument('--auto_resume', action='store_true', help='automatically resume training')
     # dataset
     parser.add_argument('--dataset', type=str, default='ngc', choices=['cifar10', 'ngc'])
-    parser.add_argument('--data_dir', type=str, default='/home1/wsi/ngc-2023-1333/')
-    parser.add_argument('--train_label_path', type=str, default='../datatools/ngc_labels/train_label.csv')
+    parser.add_argument('--load_cpu', action='store_true')
+    parser.add_argument('--data_dir', type=str, default='/home1/wsi/ngc-output-filter/meanmil')
+    parser.add_argument('--train_label_path', type=str, default='datatools/ngc-2023/ngc_labels/train_label.csv')
     # parser.add_argument('--target_patch_size', type=int, nargs='+', default=(1333, 800))
     
     # model
@@ -368,14 +382,14 @@ if __name__ == '__main__':
     # parser.add_argument('--proj_hidden_dim', default=128, type=int, help='dimension of projected features')
     
     # train 
-    parser.add_argument('--seed', default=2023, type=int)
+    parser.add_argument('--seed', default=2024, type=int)
     parser.add_argument('--batch_size', default=256, type=int)
-    parser.add_argument('--workers', default=40, type=int)
+    parser.add_argument('--workers', default=4, type=int)
     parser.add_argument('--epochs', default=200, type=int)
     parser.add_argument('--log_interval', default=10, type=int)
     
     # loss options
-    parser.add_argument('--loss_function', default='punce', type=str, choices=['infonce', 'punce'])
+    parser.add_argument('--loss_function', default='infonce', type=str, choices=['infonce', 'punce'])
     parser.add_argument('--prior', default=0.25, type=float, help='prior parameter for punce')
     parser.add_argument('--optimzer', default='sgd', type=str, choices=['adam', 'sgd'])
     parser.add_argument('--learning_rate', default=0.6, type=float, help='initial lr = 0.3 * batch_size / 256')
@@ -412,5 +426,5 @@ if __name__ == '__main__':
                 wandb.init(project=args.project, name=args.title,config=args,dir=os.path.join(args.model_path),id=ckp['wandb_id'],resume='must')
             else:
                 wandb.init(project=args.project, name=args.title,config=args,dir=os.path.join(args.model_path))
-        
+    
     train(args)
