@@ -739,6 +739,7 @@ if __name__ == '__main__':
     parser.add_argument('--accumulation_steps', default=1, type=int, help='Gradient accumulate')
     parser.add_argument('--clip_grad', default=.0, type=float, help='Gradient clip')
     parser.add_argument('--always_test', action='store_true', help='Test model in the training phase')
+    parser.add_argument('--train_val', action='store_true', help='use train and val set to train the model')
 
     # Model
     # Other models
@@ -788,9 +789,14 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default='output-model', help='Output path')
 
     args = parser.parse_args()
-    args.train_label_path = os.path.join(args.label_path, 'train_label.csv')
-    args.val_label_path = os.path.join(args.label_path, 'val_label.csv')
-    args.test_label_path = os.path.join(args.label_path, 'test_label.csv')
+    if args.train_val:
+        args.train_label_path = os.path.join(args.label_path, 'train_val.csv')
+        args.val_label_path = os.path.join(args.label_path, 'test_label.csv')
+        args.test_label_path = os.path.join(args.label_path, 'test_label.csv')
+    else:
+        args.train_label_path = os.path.join(args.label_path, 'train_label.csv')
+        args.val_label_path = os.path.join(args.label_path, 'val_label.csv')
+        args.test_label_path = os.path.join(args.label_path, 'test_label.csv')
     
     if not os.path.exists(os.path.join(args.model_path,args.project)):
         os.mkdir(os.path.join(args.model_path,args.project))
