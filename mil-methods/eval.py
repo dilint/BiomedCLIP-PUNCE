@@ -7,12 +7,14 @@ from modules import attmil,clam,mhim,dsmil,transmil,mean_max
 from dataloader import *
 
 def main(args):
+    torch.backends.cudnn.enabled = False
+    
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     # set seed
     seed_torch(args.seed)
     # --->get dataset
     test_label_path = os.path.join(args.label_path, 'test_label.csv')
-    if args.datasets.lower() == 'ngc':
+    if args.datasets.lower() == 'tct':
         test_p, test_l= [], []
         with open(test_label_path, 'r') as file:
             lines = file.readlines()
@@ -23,7 +25,7 @@ def main(args):
         test_l = [np.array(test_l)]
     
     k = 0
-    if args.datasets.lower() == 'ngc':
+    if args.datasets.lower() == 'tct':
         test_set = C16Dataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
 
     test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
@@ -142,11 +144,11 @@ def test_loop(args,model,loader,device):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MIL Training Script')
-
+    
     # Dataset 
-    parser.add_argument('--datasets', default='ngc', type=str, help='[camelyon16, tcga, ngc]')
-    parser.add_argument('--dataset_root', default='extract-features/result-final-gc-features/biomed1', type=str, help='Dataset root path')
-    parser.add_argument('--label_path', default='datatools/tct-gc/labels', type=str, help='label of train dataset')
+    parser.add_argument('--datasets', default='tct', type=str, help='[camelyon16, tcga, tct]')
+    parser.add_argument('--dataset_root', default='extract-features/result-final-ngc-features/biomed1', type=str, help='Dataset root path')
+    parser.add_argument('--label_path', default='datatools/tct-ngc/labels', type=str, help='label of train dataset')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
     parser.add_argument('--fix_train_random', action='store_true', help='Fix random seed of Training')
     parser.add_argument('--persistence', action='store_true', help='Load data into memory') 
@@ -159,9 +161,9 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', default=1, type=int, help='Number of batch size')
     parser.add_argument('--loss', default='ce', type=str, help='Classification Loss [ce, bce]')
     parser.add_argument('--n_classes', default=2, type=int, help='Number of classes')
-    parser.add_argument('--model', default='meanmil', type=str, help='Model name')
+    parser.add_argument('--model', default='pure', type=str, help='Model name')
     parser.add_argument('--seed', default=2024, type=int, help='random number [2021]' )
-    parser.add_argument('--baseline', default='selfattn', type=str, help='Baselin model [attn,selfattn]')
+    parser.add_argument('--baseline', default='attn', type=str, help='Baselin model [attn,selfattn]')
     parser.add_argument('--act', default='relu', type=str, help='Activation func in the projection head [gelu,relu]')
     parser.add_argument('--dropout', default=0.25, type=float, help='Dropout in the projection head')
     parser.add_argument('--n_heads', default=8, type=int, help='Number of head in the MSA')
@@ -197,7 +199,8 @@ if __name__ == '__main__':
     # Misc
     parser.add_argument('--num_workers', default=2, type=int, help='Number of workers in the dataloader')
     parser.add_argument('--no_log', action='store_true', help='Without log')
-    parser.add_argument('--ckp_path', type=str, default='mil-methods/output-model/mil-methods/biomed1-meanmil-tct-trainval', help='Checkpoint path')
+    parser.add_argument('--ckp_path', type=str, default='mil-methods/output-model/mil-methods/biomed0-abmil-ngc', help='Checkpoint path')
+
     
     args = parser.parse_args()
     main(args)
