@@ -11,23 +11,34 @@ def main(args):
     # set seed
     seed_torch(args.seed)
     # --->get dataset
-    test_label_path = os.path.join(args.label_path, 'test_label.csv')
-    if args.datasets.lower() == 'ngc':
-        test_p, test_l= [], []
-        with open(test_label_path, 'r') as file:
-            lines = file.readlines()
-            for line in lines:
-                test_p.append(line.split(',')[0])
-                test_l.append(line.split(',')[1])
-        test_p = [np.array(test_p)]
-        test_l = [np.array(test_l)]
+    def parse_tct_dataset(args, file_name):
+        test_label_path = os.path.join(args.label_path, file_name)
+        p, l= [], []
+        with open(test_label_path, 'r') as f:
+            for line in f.readlines():
+                p.append(line.split(',')[0])
+                l.append(line.split(',')[1])
+        p = [np.array(p)]
+        l = [np.array(l)]
+        return p, l
     
     k = 0
-    if args.datasets.lower() == 'ngc':
+    if args.datasets.lower() == 'tct':
+        test_p, test_l = parse_tct_dataset(args, 'test_label.csv')
         test_set = C16Dataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
-
-    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
-
+        test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+        if args.c_h:
+            test_c_p, test_c_l = parse_tct_dataset(args, 'test_c.csv')
+            test_c_set = C16Dataset(test_c_p[k],test_c_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
+            test_c_loader = DataLoader(test_c_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+            test_h_p, test_h_l = parse_tct_dataset(args, 'test_h.csv')
+            test_h_set = C16Dataset(test_h_p[k],test_h_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
+            test_h_loader = DataLoader(test_h_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+    else:
+        test_loader = None
+        print('##info##: 暂时不支持其他数据集，tct为通用的tct-ngc和tct-gc')        
+        return
+        
     if args.model == 'mhim':
         mrh_sche = None
         model_params = {
@@ -86,10 +97,21 @@ def main(args):
     best_std = torch.load(os.path.join(args.ckp_path, 'fold_{fold}_model_best_auc.pt'.format(fold=k)))
     info = model.load_state_dict(best_std['model'])
     print(info)
-    accuracy, auc_value, precision, recall, specificity, fscore = test_loop(args,model,test_loader,device)
-    print(f'accuracy: {accuracy},\n auc_value: {auc_value},\n precision: {precision},\n recall: {recall},\n specificity: {specificity},\n fscore: {fscore}')
-    
-def test_loop(args,model,loader,device):
+    accuracy, auc_value, precision, recall, specificity, fscore = test_loop(args,model,test_loader,device,False)
+    print(f'''
+          accuracy: {accuracy},
+          auc_value: {auc_value},
+          precision: {precision},
+          recall: {recall},
+          specificity: {specificity},
+          fscore: {fscore}''')
+    if args.c_h:
+        c_h = True
+        sen_c = test_loop(args,model,test_c_loader,device, c_h)
+        sen_h = test_loop(args,model,test_h_loader,device, c_h)
+        print(f'sen_c: {sen_c},\n sen_h: {sen_h}')
+        
+def test_loop(args,model,loader,device,c_h):
     model.eval()
     bag_logits, bag_labels=[], []
 
@@ -133,18 +155,22 @@ def test_loop(args,model,loader,device):
                     bag_logits.append(torch.sigmoid(test_logits).cpu().squeeze().numpy())
 
     # save the log file
-    if args.n_classes == 2:
-        accuracy, auc_value, precision, recall, specificity, fscore = six_scores(bag_labels, bag_logits)
-    else:
-        specificity = 0
-        auc_value, accuracy, recall, precision, fscore = multi_class_scores(bag_labels, bag_logits)
-    return accuracy, auc_value, precision, recall, specificity, fscore
-
+    if not c_h:
+        if args.n_classes == 2:
+            accuracy, auc_value, precision, recall, specificity, fscore = six_scores(bag_labels, bag_logits, args.threshold)
+        else:
+            specificity = 0
+            auc_value, accuracy, recall, precision, fscore = multi_class_scores(bag_labels, bag_logits)
+        return accuracy, auc_value, precision, recall, specificity, fscore
+    else: 
+        sens = tct_recall(bag_labels, bag_logits, args.threshold)
+        return sens
+    
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MIL Training Script')
 
     # Dataset 
-    parser.add_argument('--datasets', default='ngc', type=str, help='[camelyon16, tcga, ngc]')
+    parser.add_argument('--datasets', default='tct', type=str, help='[camelyon16, tcga, tct]')
     parser.add_argument('--dataset_root', default='extract-features/result-final-gc-features/biomed1', type=str, help='Dataset root path')
     parser.add_argument('--label_path', default='datatools/tct-gc/labels', type=str, help='label of train dataset')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
@@ -193,11 +219,13 @@ if __name__ == '__main__':
     parser.add_argument('--mm', default=0.9999, type=float, help='Ema decay [0.9997]')
     parser.add_argument('--mm_final', default=1., type=float, help='Final ema decay [1.]')
     parser.add_argument('--mm_sche', action='store_true', help='Cosine schedule of ema decay')
-
+    
     # Misc
     parser.add_argument('--num_workers', default=2, type=int, help='Number of workers in the dataloader')
+    parser.add_argument('--threshold', default=0, type=float, help='the threshold of classification')
     parser.add_argument('--no_log', action='store_true', help='Without log')
     parser.add_argument('--ckp_path', type=str, default='mil-methods/output-model/mil-methods/biomed1-meanmil-tct-trainval', help='Checkpoint path')
+    parser.add_argument('--c_h', action='store_true', help='calculate sens.C & sens.H')
     
     args = parser.parse_args()
     main(args)
