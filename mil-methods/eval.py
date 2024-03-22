@@ -38,7 +38,7 @@ def main(args):
             test_h_loader = DataLoader(test_h_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
     else:
         test_loader = None
-        print('##info##: 暂时不支持其他数据集，tct为通用的tct-ngc和tct-gc')        
+        print('##info##: 暂时只支持tct数据集，tct为通用的tct-ngc和tct-gc')        
         return
         
     if args.model == 'mhim':
@@ -172,7 +172,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MIL Training Script')
     
     # Dataset 
-    parser.add_argument('--datasets', default='ngc', type=str, help='[camelyon16, tcga, ngc]')
+    parser.add_argument('--datasets', default='tct', type=str, help='[camelyon16, tcga, tct]')
     parser.add_argument('--dataset_root', default='extract-features/result-final-gc-features/biomed1', type=str, help='Dataset root path')
     parser.add_argument('--label_path', default='datatools/tct-gc/labels', type=str, help='label of train dataset')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
