@@ -7,6 +7,8 @@ from modules import attmil,clam,mhim,dsmil,transmil,mean_max
 from dataloader import *
 
 def main(args):
+    torch.backends.cudnn.enabled = False
+    
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     # set seed
     seed_torch(args.seed)
@@ -168,9 +170,9 @@ def test_loop(args,model,loader,device,c_h):
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MIL Training Script')
-
+    
     # Dataset 
-    parser.add_argument('--datasets', default='tct', type=str, help='[camelyon16, tcga, tct]')
+    parser.add_argument('--datasets', default='ngc', type=str, help='[camelyon16, tcga, ngc]')
     parser.add_argument('--dataset_root', default='extract-features/result-final-gc-features/biomed1', type=str, help='Dataset root path')
     parser.add_argument('--label_path', default='datatools/tct-gc/labels', type=str, help='label of train dataset')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
@@ -185,9 +187,9 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', default=1, type=int, help='Number of batch size')
     parser.add_argument('--loss', default='ce', type=str, help='Classification Loss [ce, bce]')
     parser.add_argument('--n_classes', default=2, type=int, help='Number of classes')
-    parser.add_argument('--model', default='meanmil', type=str, help='Model name')
+    parser.add_argument('--model', default='pure', type=str, help='Model name')
     parser.add_argument('--seed', default=2024, type=int, help='random number [2021]' )
-    parser.add_argument('--baseline', default='selfattn', type=str, help='Baselin model [attn,selfattn]')
+    parser.add_argument('--baseline', default='attn', type=str, help='Baselin model [attn,selfattn]')
     parser.add_argument('--act', default='relu', type=str, help='Activation func in the projection head [gelu,relu]')
     parser.add_argument('--dropout', default=0.25, type=float, help='Dropout in the projection head')
     parser.add_argument('--n_heads', default=8, type=int, help='Number of head in the MSA')
@@ -225,7 +227,6 @@ if __name__ == '__main__':
     parser.add_argument('--threshold', default=0, type=float, help='the threshold of classification')
     parser.add_argument('--no_log', action='store_true', help='Without log')
     parser.add_argument('--ckp_path', type=str, default='mil-methods/output-model/mil-methods/biomed1-meanmil-tct-trainval', help='Checkpoint path')
-    parser.add_argument('--c_h', action='store_true', help='calculate sens.C & sens.H')
     
     args = parser.parse_args()
     main(args)

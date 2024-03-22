@@ -125,10 +125,10 @@ def six_scores(bag_labels, bag_predictions, thres):
     bag_predictions = this_class_label
     precision, recall, fscore, _ = precision_recall_fscore_support(bag_labels, bag_predictions, average='binary')
     accuracy = accuracy_score(bag_labels, bag_predictions)
-    specifity_metric = BinarySpecificity()
-    specifity = specifity_metric(torch.tensor(bag_predictions), torch.tensor(bag_labels))
+    specificity_metric = BinarySpecificity()
+    specificity = specificity_metric(torch.tensor(bag_predictions), torch.tensor(bag_labels))
     # accuracy = 1- np.count_nonzero(np.array(bag_labels).astype(int)- bag_predictions.astype(int)) / len(bag_labels)
-    return accuracy, auc_value, precision, recall, specifity, fscore
+    return accuracy, auc_value, precision, recall, specificity, fscore
 
 def tct_recall(bag_labels, bag_predictions, thres): 
     this_class_label = np.array(bag_predictions)
