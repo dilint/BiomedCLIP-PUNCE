@@ -16,7 +16,7 @@ from torchvision.datasets import CIFAR10
 from torchvision.models import resnet18, resnet34
 from torchvision import transforms
 
-from models import SimCLR, SimCLR_custome
+from simclr.model_simclr import SimCLR, SimCLR_custome
 from model_backbone import resnet50_baseline, biomedCLIP_backbone
 from model_adapter import Linear_Adapter
 
@@ -315,7 +315,7 @@ def train(args) -> None:
         backbone = resnet50_baseline(pretrained=True)
         input_dim = 1024
     elif args.backbone == 'biomedCLIP':
-        backbone = biomedCLIP_backbone()
+        backbone, _ = biomedCLIP_backbone()
         input_dim = 512
     for name, param in backbone.named_parameters():
         param.requires_grad = False

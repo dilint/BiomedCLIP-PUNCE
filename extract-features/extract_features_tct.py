@@ -9,6 +9,8 @@ import copy
 import time
 from torch.utils.data import DataLoader, Dataset
 from models.resnet_custom import resnet50_baseline
+from models.model_adapter import Linear_Adapter
+from models.model_backbone import resnet50_baseline, biomedCLIP_backbone
 import argparse
 from utils.file_utils import save_hdf5
 from PIL import Image
@@ -84,7 +86,7 @@ def compute_w_loader(wsi_dir,
 def main():
     # set argsrget_patch
     parser = argparse.ArgumentParser(description='NGC dataset Feature Extraction')
-    parser.add_argument('--dataset', type=str, default='ngc', choices=['ngc', 'ubc', 'tct'])
+    parser.add_argument('--dataset', type=str, default='ngc', choices=['ngc', 'ubc', 'gc'])
     parser.add_argument('--wsi_root', type=str, default='root/commonfile/wsi/ngc-2023-133')
     parser.add_argument('--output_path', type=str, default='result-final-ngc-features')
     parser.add_argument('--feat_dir', type=str, default='resnet-ori-test')
@@ -99,13 +101,13 @@ def main():
     parser.add_argument('--target_patch_size', type=int, nargs='+', default=(224, 224))
     # model options
     parser.add_argument('--base_model', default='resnet50', type=str, choices=['biomedclip', 'resnet50'])
+    parser.add_argument('--with_adapter', action='store_true')
     parser.add_argument('--ckp_path', type=str, default=None)
     args = parser.parse_args()
     
     if args.multi_gpu:
         args.local_rank = int(os.environ['LOCAL_RANK'])
         args.world_size = int(os.environ['WORLD_SIZE'])
-
     
     # get wsi paths
     wsi_root = args.wsi_root
@@ -122,7 +124,7 @@ def main():
         for data_root in data_roots:
             wsi_dirs.extend([os.path.join(data_root, subdir) for subdir in os.listdir(data_root)])
     
-    elif args.dataset == 'tct':
+    elif args.dataset == 'gc':
         sub_paths = [
             'NILM',
             'POS'
@@ -134,7 +136,6 @@ def main():
     elif args.dataset == 'ubc':
         wsi_dirs = [os.path.join(wsi_root, subdir) for subdir in os.listdir(wsi_root)]
     
-        
     # get output path
     output_path = args.output_path
     output_path = os.path.join(output_path, args.feat_dir)
@@ -144,29 +145,24 @@ def main():
     os.makedirs(output_path_h5, exist_ok=True)
     dest_files = os.listdir(output_path_pt)
     
-    
     # load model
     torch.cuda.set_device(args.local_rank)
     print('loading model')
     preprocess_val = None
     if args.base_model == 'resnet50':
-        if args.ckp_path:
-            model = resnet50_baseline(pretrained=False, hideLayer=True)
-            new_ckp = dict()
-            ckp = torch.load(args.ckp_path)
-            for key, param in ckp.items():
-                key = key.replace('module.enc.' ,'')
-                if "module.projector" in key:
-                    continue
-                new_ckp[key] = param
-            model.load_state_dict(new_ckp)
-        else:
-            model = resnet50_baseline(pretrained=True, hideLayer=False)
-        print('successfully load model')
+        backbone = resnet50_baseline(pretrained=True)
+        input_dim = 1024
     elif args.base_model == 'biomedclip':
-        model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms('hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224')
-
-    model = model.to(device)
+        backbone, preprocess_val = biomedCLIP_backbone()
+        input_dim = 512
+    print('load backbone successfully')
+    
+    if args.with_adapter:
+        adapter = Linear_Adapter(input_dim)
+        ckp = torch.load(args.ckp_path)
+        adapter.load_state_dict(ckp['adapter'])
+        
+    model = nn.Sequential(backbone, adapter).to(device)
     model.eval()
     total = len(wsi_dirs)    
 

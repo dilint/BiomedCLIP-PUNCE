@@ -125,7 +125,8 @@ def load_pretrained_weights(model, name):
 
 def biomedCLIP_backbone():
     model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms('hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224')
-    return model, preprocess_val
+    return model
+
 
 if __name__ == '__main__':
     model = resnet50_baseline(pretrained=True)
