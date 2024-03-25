@@ -4,7 +4,6 @@ import logging
 
 import numpy as np
 from PIL import Image
-import jpeg4py as jpeg
 import glob
 
 import torch
@@ -18,7 +17,8 @@ from torchvision.models import resnet18, resnet34
 from torchvision import transforms
 
 from models import SimCLR, SimCLR_custome
-from resnet_custom import resnet50_baseline
+from model_backbone import resnet50_baseline, biomedCLIP_backbone
+from model_adapter import Biomed_Adapter
 
 from tqdm import tqdm
 import os
@@ -256,7 +256,7 @@ def get_color_distortion(s=0.5):  # 0.5 for CIFAR10 by default
     color_jitter = transforms.ColorJitter(0.8*s, 0.8*s, 0.8*s, 0.2*s)
     rnd_color_jitter = transforms.RandomApply([color_jitter], p=0.8)
     rnd_gray = transforms.RandomGrayscale(p=0.2)
-    color_distort = transforms.Compose([rnd_color_jitter, rnd_gray])
+    color_distort = transforms.Compose([rnd_gray])
     return color_distort
 
 def train(args) -> None:
@@ -315,12 +315,20 @@ def train(args) -> None:
     # assert args.backbone in ['resnet18', 'resnet34']
     # base_encoder = eval(args.backbone)
     # model = SimCLR(base_encoder, projection_dim=args.projection_dim).cuda()
-    base_model = resnet50_baseline(pretrained=True)
-    for name, param in base_model.named_parameters():
-        param.requires_grad = False
-        if 'hide_layer' in name :
-            param.requires_grad = True
-    model = SimCLR_custome(base_model, feature_dim=1024)
+    if args.backbone == 'resnet50':
+        base_model = resnet50_baseline(pretrained=True)
+        for name, param in base_model.named_parameters():
+            param.requires_grad = False
+            if 'hide_layer' in name :
+                param.requires_grad = True
+        model = SimCLR_custome(base_model, feature_dim=1024)
+    elif args.backbone == 'biomedCLIP':
+        backbone = biomedCLIP_backbone()
+        for name, param in backbone.named_parameters():
+            param.requires_grad = False
+        adapter = Biomed_Adapter()
+        base_model = nn.Sequential(backbone, adapter)
+        model = SimCLR_custome(base_model, feature_dim=512)
     model = model.cuda()
     
     if args.ddp:
@@ -396,7 +404,7 @@ if __name__ == '__main__':
     # parser.add_argument('--target_patch_size', type=int, nargs='+', default=(1333, 800))
     
     # model
-    # parser.add_argument('--backbone', type=str, default='resnet18', choices=['resnet18', 'resnet50', 'resnet101'])
+    parser.add_argument('--backbone', type=str, default='resnet50', choices=['resnet50', 'biomedCLIP'])
     # parser.add_argument('--proj_hidden_dim', default=128, type=int, help='dimension of projected features')
     
     # train 

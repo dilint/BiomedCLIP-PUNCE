@@ -4,6 +4,7 @@ import torch.utils.model_zoo as model_zoo
 import torch
 import torch.nn.functional as F
 from torchsummary import summary
+import open_clip
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152']
@@ -125,6 +126,10 @@ def resnet50_baseline(pretrained=False):
 def load_pretrained_weights(model, name):
     pretrained_dict = model_zoo.load_url(model_urls[name])
     model.load_state_dict(pretrained_dict, strict=False)
+    return model
+
+def biomedCLIP_backbone():
+    model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms('hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224')
     return model
 
 
