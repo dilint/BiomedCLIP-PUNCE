@@ -241,4 +241,4 @@ class NGCDatasetInfer(Dataset):
         label = int(self.slide_label[idx])
         wsi_name = self.file_name[idx]
         
-        return features , label, wsi_name
+        return features, label, wsi_name

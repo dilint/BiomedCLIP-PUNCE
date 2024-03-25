@@ -110,14 +110,23 @@ class Whole_Slide_Patchs_Ngc(Dataset):
                  data_dir,
                  train_label_path,
                  transform,
+                 is_ngc,
                  load_cpu,):
         # get img_path
-        sub_paths = [
+        NGC_SUB_PATHS = [
             'Unannotated_KSJ/Unannotated-KSJ-TCTNGC-NILM',
             'Unannotated_KSJ/Unannotated-KSJ-TCTNGC-POS',
             'Unannotated_XIMEA/Unannotated-XIMEA-TCTNGC-NILM',
             'Unannotated_XIMEA/Unannotated-XIMEA-TCTNGC-POS'
         ]
+        GC_SUB_PATHS = [
+            'NILM',
+            'POS'
+        ]
+        if is_ngc:
+            sub_paths = NGC_SUB_PATHS
+        else:
+            sub_paths = GC_SUB_PATHS            
         data_roots = list(map(lambda x: os.path.join(data_dir, x), sub_paths)) 
         wsi_dirs = []
         train_wsi_lists = []
@@ -274,6 +283,15 @@ def train(args) -> None:
             data_dir=args.data_dir,
             train_label_path=args.train_label_path,
             transform=train_transform,
+            is_ngc=True,
+            load_cpu=args.load_cpu
+        )
+    elif args.dataset == 'gc':
+        train_set = Whole_Slide_Patchs_Ngc(
+            data_dir=args.data_dir,
+            train_label_path=args.train_label_path,
+            transform=train_transform,
+            is_ngc=False,
             load_cpu=args.load_cpu
         )
     
@@ -371,7 +389,7 @@ if __name__ == '__main__':
     
     parser.add_argument('--auto_resume', action='store_true', help='automatically resume training')
     # dataset
-    parser.add_argument('--dataset', type=str, default='ngc', choices=['cifar10', 'ngc'])
+    parser.add_argument('--dataset', type=str, default='ngc', choices=['cifar10', 'ngc', 'gc'])
     parser.add_argument('--load_cpu', action='store_true')
     parser.add_argument('--data_dir', type=str, default='/home1/wsi/ngc-output-filter/meanmil')
     parser.add_argument('--train_label_path', type=str, default='datatools/ngc-2023/ngc_labels/train_label.csv')
