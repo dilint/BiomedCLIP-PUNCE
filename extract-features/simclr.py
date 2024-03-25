@@ -263,14 +263,14 @@ def train(args) -> None:
     assert torch.cuda.is_available()
     cudnn.benchmark = True
 
-    # train_transform = transforms.Compose([transforms.RandomResizedCrop(224),
-    #                                       transforms.RandomHorizontalFlip(p=0.5),
-    #                                       get_color_distortion(s=0.5),
-    #                                       transforms.ToTensor()])
-    train_transform = transforms.Compose([
+    train_transform = transforms.Compose([transforms.RandomResizedCrop(224),
                                           transforms.RandomHorizontalFlip(p=0.5),
                                           get_color_distortion(s=0.5),
                                           transforms.ToTensor()])
+    # train_transform = transforms.Compose([
+    #                                       transforms.RandomHorizontalFlip(p=0.5),
+    #                                       get_color_distortion(s=0.5),
+    #                                       transforms.ToTensor()])
     
     # set dataset 
     if args.dataset == 'cifar10':
@@ -335,7 +335,6 @@ def train(args) -> None:
         momentum=args.momentum,
         weight_decay=args.weight_decay,
         nesterov=True)
-
     
     # cosine annealing lr
     scheduler = LambdaLR(
@@ -350,6 +349,7 @@ def train(args) -> None:
     if args.auto_resume:
         ckp = torch.load(os.path.join(args.model_path, args.ckp_path))
         epoch_start = ckp['epoch']+1
+        model.load_state_dict(ckp['projector'])
         adapter.load_state_dict(ckp['adapter'])
         optimizer.load_state_dict(ckp['optimizer'])
         scheduler.load_state_dict(ckp['lr_sche'])
@@ -393,11 +393,13 @@ def train(args) -> None:
         else:
             ckp = {
                 'adapter': adapter.state_dict(),
+                'projector': {k: v for k, v in model.state_dict().items() if k.startswith('projector')},
                 'lr_sche': scheduler.state_dict(),
                 'optimizer': optimizer.state_dict(),
                 'epoch': epoch,
                 'wandb_id': wandb.run.id if args.wandb else '',
             }
+
             if epoch >= args.log_interval and epoch % args.log_interval == 0:
                 print("==> Save checkpoint. Train epoch {}, SimCLR loss: {:.4f}".format(epoch, loss_meter.avg))
                 torch.save(ckp, os.path.join(args.model_path, '{}_epoch{}.pt'.format(args.title, epoch)))
