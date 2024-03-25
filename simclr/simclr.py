@@ -18,7 +18,7 @@ from torchvision import transforms
 
 from models import SimCLR, SimCLR_custome
 from model_backbone import resnet50_baseline, biomedCLIP_backbone
-from model_adapter import Biomed_Adapter
+from model_adapter import Linear_Adapter
 
 from tqdm import tqdm
 import os
@@ -263,14 +263,14 @@ def train(args) -> None:
     assert torch.cuda.is_available()
     cudnn.benchmark = True
 
-    train_transform = transforms.Compose([transforms.RandomResizedCrop(224),
-                                          transforms.RandomHorizontalFlip(p=0.5),
-                                          get_color_distortion(s=0.5),
-                                          transforms.ToTensor()])
-    # train_transform = transforms.Compose([
+    # train_transform = transforms.Compose([transforms.RandomResizedCrop(224),
     #                                       transforms.RandomHorizontalFlip(p=0.5),
     #                                       get_color_distortion(s=0.5),
     #                                       transforms.ToTensor()])
+    train_transform = transforms.Compose([
+                                          transforms.RandomHorizontalFlip(p=0.5),
+                                          get_color_distortion(s=0.5),
+                                          transforms.ToTensor()])
     
     # set dataset 
     if args.dataset == 'cifar10':
@@ -311,24 +311,19 @@ def train(args) -> None:
                                 drop_last=True)
     print(len(train_set))
     
-    # Prepare model
-    # assert args.backbone in ['resnet18', 'resnet34']
-    # base_encoder = eval(args.backbone)
-    # model = SimCLR(base_encoder, projection_dim=args.projection_dim).cuda()
     if args.backbone == 'resnet50':
-        base_model = resnet50_baseline(pretrained=True)
-        for name, param in base_model.named_parameters():
-            param.requires_grad = False
-            if 'hide_layer' in name :
-                param.requires_grad = True
-        model = SimCLR_custome(base_model, feature_dim=1024)
+        backbone = resnet50_baseline(pretrained=True)
+        input_dim = 1024
     elif args.backbone == 'biomedCLIP':
         backbone = biomedCLIP_backbone()
-        for name, param in backbone.named_parameters():
-            param.requires_grad = False
-        adapter = Biomed_Adapter()
-        base_model = nn.Sequential(backbone, adapter)
-        model = SimCLR_custome(base_model, feature_dim=512)
+        input_dim = 512
+    for name, param in backbone.named_parameters():
+        param.requires_grad = False
+    adapter = Linear_Adapter(input_dim)
+    for _, param in adapter.named_parameters():
+        param.requires_grad = True
+    base_model = nn.Sequential(backbone, adapter)
+    model = SimCLR_custome(base_model, feature_dim=input_dim)
     model = model.cuda()
     
     if args.ddp:
@@ -341,6 +336,7 @@ def train(args) -> None:
         weight_decay=args.weight_decay,
         nesterov=True)
 
+    
     # cosine annealing lr
     scheduler = LambdaLR(
         optimizer,
@@ -350,9 +346,17 @@ def train(args) -> None:
             args.learning_rate,  # lr_lambda computes multiplicative factor
             1e-3))
 
+    epoch_start = 1
+    if args.auto_resume:
+        ckp = torch.load(os.path.join(args.model_path, args.ckp_path))
+        epoch_start = ckp['epoch']+1
+        adapter.load_state_dict(ckp['adapter'])
+        optimizer.load_state_dict(ckp['optimizer'])
+        scheduler.load_state_dict(ckp['lr_sche'])
+
     # SimCLR training
     model.train()
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(epoch_start, args.epochs + 1):
         loss_meter = AverageMeter("SimCLR_loss")
         train_bar = tqdm(train_loader)
         for x, y in train_bar:
@@ -387,9 +391,16 @@ def train(args) -> None:
         if args.ddp and args.local_rank != 0:
             pass
         else:
+            ckp = {
+                'adapter': adapter.state_dict(),
+                'lr_sche': scheduler.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'epoch': epoch,
+                'wandb_id': wandb.run.id if args.wandb else '',
+            }
             if epoch >= args.log_interval and epoch % args.log_interval == 0:
                 print("==> Save checkpoint. Train epoch {}, SimCLR loss: {:.4f}".format(epoch, loss_meter.avg))
-                torch.save(model.state_dict(), os.path.join(args.model_path, '{}_epoch{}.pt'.format(args.title, epoch)))
+                torch.save(ckp, os.path.join(args.model_path, '{}_epoch{}.pt'.format(args.title, epoch)))
 
     
 if __name__ == '__main__':
@@ -428,7 +439,7 @@ if __name__ == '__main__':
     parser.add_argument('--project', default='simclr-puc', type=str)
     parser.add_argument('--title', default='resnet50-simclr-test', type=str)
     parser.add_argument('--model_path', default='output-model', type=str)
-    
+    parser.add_argument('--ckp_path', type=str)
     # ddp
     parser.add_argument('--ddp', action='store_true', help="if user ddp")
     parser.add_argument("--local_rank", type=int)
@@ -448,7 +459,7 @@ if __name__ == '__main__':
         if args.wandb:
             wandb.login()
             if args.auto_resume:
-                ckp = torch.load(os.path.join(args.model_path, 'ckp.pth'))
+                ckp = torch.load(os.path.join(args.model_path, args.ckp_path))
                 wandb.init(project=args.project, name=args.title,config=args,dir=os.path.join(args.model_path),id=ckp['wandb_id'],resume='must')
             else:
                 wandb.init(project=args.project, name=args.title,config=args,dir=os.path.join(args.model_path))
