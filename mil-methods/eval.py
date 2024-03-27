@@ -226,6 +226,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_workers', default=2, type=int, help='Number of workers in the dataloader')
     parser.add_argument('--threshold', default=0, type=float, help='the threshold of classification')
     parser.add_argument('--no_log', action='store_true', help='Without log')
+    parser.add_argument('--c_h', action='store_true')
     parser.add_argument('--ckp_path', type=str, default='mil-methods/output-model/mil-methods/biomed1-meanmil-tct-trainval', help='Checkpoint path')
     
     args = parser.parse_args()
