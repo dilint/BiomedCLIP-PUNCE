@@ -36,9 +36,12 @@ class Whole_Slide_Patchs_Ngc(Dataset):
         self.wsi_path = wsi_path
         patch_files = glob.glob(os.path.join(wsi_path, '*.jpg')) + glob.glob(os.path.join(wsi_path, '*.png'))
         # sort to ensure reproducibility
-        self.patch_files = sorted(patch_files, key=lambda x: (int(os.path.basename(x).split(".")[0].split("_")[0]), 
+        try:
+            self.patch_files = sorted(patch_files, key=lambda x: (int(os.path.basename(x).split(".")[0].split("_")[0]), 
         int(os.path.basename(x).split(".")[0].split("_")[1])))
-        
+        except Exception as e:
+            print(e)
+            
     def __getitem__(self, idx):
         img = Image.open(self.patch_files[idx])
         img = self.preprocess(img)
@@ -72,12 +75,10 @@ def compute_w_loader(wsi_dir,
             if i % print_every == 0:
                 print('batch {}/{}, {} files processed'.format(i, len(loader), i * batch_size))
             batch = batch.to(device)
-            if args.base_model == 'biomedclip':
-                features, text_features, logit_scale = model(batch) 
-            else:
-                features = model(batch)
+            features = model(batch)
+            if isinstance(features, tuple):
+                features = features[0]
             features = features.cpu().numpy()
-            
             asset_dict = {'features': features}
             save_hdf5(output_path, asset_dict, attr_dict=None, mode=mode)
             mode = 'a'
@@ -103,6 +104,7 @@ def main():
     parser.add_argument('--base_model', default='resnet50', type=str, choices=['biomedclip', 'resnet50'])
     parser.add_argument('--with_adapter', action='store_true')
     parser.add_argument('--ckp_path', type=str, default=None)
+    parser.add_argument('--get_trunk', action='store_true')
     args = parser.parse_args()
     
     if args.multi_gpu:
@@ -161,8 +163,9 @@ def main():
         adapter = Linear_Adapter(input_dim)
         ckp = torch.load(args.ckp_path)
         adapter.load_state_dict(ckp['adapter'])
-        
-    model = nn.Sequential(backbone, adapter).to(device)
+        model = nn.Sequential(backbone, adapter).to(device)
+    else:
+        model = nn.Sequential(backbone).to(device)
     model.eval()
     total = len(wsi_dirs)    
 
