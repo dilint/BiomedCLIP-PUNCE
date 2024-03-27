@@ -75,7 +75,10 @@ def compute_w_loader(wsi_dir,
             if i % print_every == 0:
                 print('batch {}/{}, {} files processed'.format(i, len(loader), i * batch_size))
             batch = batch.to(device)
-            features = model(batch)
+            if args.without_head:
+                features = model.visual.get_trunk(batch)
+            eles:
+                features = model(batch)
             if isinstance(features, tuple):
                 features = features[0]
             features = features.cpu().numpy()
@@ -104,7 +107,7 @@ def main():
     parser.add_argument('--base_model', default='resnet50', type=str, choices=['biomedclip', 'resnet50'])
     parser.add_argument('--with_adapter', action='store_true')
     parser.add_argument('--ckp_path', type=str, default=None)
-    parser.add_argument('--get_trunk', action='store_true')
+    parser.add_argument('--without_head', action='store_true')
     args = parser.parse_args()
     
     if args.multi_gpu:
