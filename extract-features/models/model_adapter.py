@@ -1,8 +1,8 @@
 import torch.nn as nn
 
-class Linear_Adapter(nn.Module):
+class LinearAdapter(nn.Module):
     def __init__(self, input_dim):
-        super(Linear_Adapter, self).__init__()
+        super(LinearAdapter, self).__init__()
         self.hide_layer = nn.Linear(input_dim, input_dim)
     
     def forward(self, x):

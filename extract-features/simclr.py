@@ -18,7 +18,7 @@ from torchvision import transforms
 
 from models.model_simclr import SimCLR, SimCLR_custome
 from models.model_backbone import resnet50_baseline, biomedCLIP_backbone
-from models.model_adapter import Linear_Adapter
+from models.model_adapter import LinearAdapter
 
 from tqdm import tqdm
 import os
@@ -319,7 +319,7 @@ def train(args) -> None:
         input_dim = 512
     for name, param in backbone.named_parameters():
         param.requires_grad = False
-    adapter = Linear_Adapter(input_dim)
+    adapter = LinearAdapter(input_dim)
     for _, param in adapter.named_parameters():
         param.requires_grad = True
     base_model = nn.Sequential(backbone, adapter)

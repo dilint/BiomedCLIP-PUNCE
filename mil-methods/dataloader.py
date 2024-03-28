@@ -5,6 +5,7 @@ import random
 import numpy as np
 from collections import Counter
 from torch.utils.data import Dataset
+import torch.nn.functional as F
 from sklearn.model_selection import StratifiedKFold
 
 def readCSV(filename):
@@ -196,9 +197,43 @@ class C16Dataset(Dataset):
             features = torch.load(file_path)
 
         label = int(self.slide_label[idx])
-
         return features , label, file_path
     
+class GcDataset(C16Dataset):
+    def __init__(self, file_name, file_label,root,persistence,keep_same_psize,high_weight,is_train=False):
+        """
+        Args
+        :param images: 
+        :param transform: optional transform to be applied on a sample
+        """
+        super(GcDataset, self).__init__(file_name, file_label,root,persistence,keep_same_psize,is_train)
+        self.high_labels = ['ASC-H', 'HSIL']
+        self.high_weight = high_weight
+        self.is_train = is_train
+        
+    def __getitem__(self, idx):
+        """
+        Args
+        :param idx: the index of item
+        :return: image and its label
+        """
+        if self.persistence:
+            features = self.feats[idx]
+        else:
+            dir_path = os.path.join(self.root,"pt")
+            file_path = os.path.join(dir_path, self.file_name[idx]+'.pt')
+            features = torch.load(file_path)
+        label = int(self.slide_label[idx])
+        target = F.one_hot(torch.tensor(label), num_classes=2).type(torch.float32)
+        # adapt one_hot to calculate CEloss and if the wsi label is a high risk label, increase the loss weight for this sample  
+        for high_label in self.high_labels:
+            if high_label in self.file_name[idx]:
+                target[1] = self.high_weight
+                break
+        if self.is_train:
+            return features, target, file_path
+        else:
+            return features, label, file_path
 
 class NGCDatasetInfer(Dataset):
 

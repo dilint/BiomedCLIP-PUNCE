@@ -137,11 +137,17 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
             val_set = test_set
             
     # the split of ngc has been done 
-    elif args.datasets.lower() == 'ngc' or 'gc':
+    elif args.datasets.lower() == 'ngc':
 
         train_set = C16Dataset(train_p[k],train_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,is_train=True)
         test_set = C16Dataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
         val_set = C16Dataset(val_p[k],val_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
+
+    elif args.datasets.lower() == 'gc':
+        
+        train_set = GcDataset(train_p[k],train_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,high_weight=args.high_weight,is_train=True)
+        test_set = GcDataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,high_weight=args.high_weight)
+        val_set = GcDataset(val_p[k],val_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,high_weight=args.high_weight)
 
     elif args.datasets.lower() == 'tcga':
         
@@ -670,7 +676,7 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,model_tea=N
                     test_loss = criterion(test_logits[0].view(batch_size,-1),label)
                     bag_logits.append((0.5*torch.softmax(test_logits[1],dim=-1)+0.5*torch.softmax(test_logits[0],dim=-1))[:,1].cpu().squeeze().numpy())
                 else:
-                    test_loss = criterion(test_logits.view(batch_size,-1),label)
+                    test_loss = criterion(test_logits.view(batch_size,-1),label)    
                     if args.n_classes == 2:
                         bag_logits.extend(torch.softmax(test_logits,dim=-1)[:,1].cpu().numpy())
                     else:
@@ -718,6 +724,7 @@ if __name__ == '__main__':
     parser.add_argument('--cv_fold', default=3, type=int, help='Number of cross validation fold [3]')
     parser.add_argument('--persistence', action='store_true', help='Load data into memory') 
     parser.add_argument('--same_psize', default=0, type=int, help='Keep the same size of all patches [0]')
+    parser.add_argument('--high_weight', default=1.0, type=float, help='the weight loss for high risk wsi of gc dataset')
 
     # Train
     parser.add_argument('--cls_alpha', default=1.0, type=float, help='Main loss alpha')

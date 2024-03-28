@@ -9,7 +9,7 @@ import copy
 import time
 from torch.utils.data import DataLoader, Dataset
 from models.resnet_custom import resnet50_baseline
-from models.model_adapter import Linear_Adapter
+from models.model_adapter import LinearAdapter
 from models.model_backbone import resnet50_baseline, biomedCLIP_backbone
 import argparse
 from utils.file_utils import save_hdf5
@@ -76,8 +76,8 @@ def compute_w_loader(wsi_dir,
                 print('batch {}/{}, {} files processed'.format(i, len(loader), i * batch_size))
             batch = batch.to(device)
             if args.without_head:
-                features = model.visual.get_trunk(batch)
-            eles:
+                features = model.visual.trunk(batch)
+            else:
                 features = model(batch)
             if isinstance(features, tuple):
                 features = features[0]
@@ -163,7 +163,7 @@ def main():
     print('load backbone successfully')
     
     if args.with_adapter:
-        adapter = Linear_Adapter(input_dim)
+        adapter = LinearAdapter(input_dim)
         ckp = torch.load(args.ckp_path)
         adapter.load_state_dict(ckp['adapter'])
         model = nn.Sequential(backbone, adapter).to(device)
