@@ -123,10 +123,21 @@ def load_pretrained_weights(model, name):
     model.load_state_dict(pretrained_dict, strict=False)
     return model
 
-def biomedCLIP_backbone():
+def biomedCLIP_backbone(without_head: bool = False):
+    class Normalize_module(nn.Module):
+        def __init__(self):
+            super(Normalize_module, self).__init__()
+        def forward(self, x):
+            return F.normalize(x, dim=-1)
+    if without_head:
+        output_dim = 768
     model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms('hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224')
+    if without_head:
+        model = model.visual.trunk
+    else:
+        model = model.visual
+    model = nn.Sequential(model, Normalize_module())
     return model, preprocess_val
-
 
 if __name__ == '__main__':
     model = resnet50_baseline(pretrained=True)

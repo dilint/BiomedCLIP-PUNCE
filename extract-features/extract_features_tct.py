@@ -75,10 +75,7 @@ def compute_w_loader(wsi_dir,
             if i % print_every == 0:
                 print('batch {}/{}, {} files processed'.format(i, len(loader), i * batch_size))
             batch = batch.to(device)
-            if args.without_head:
-                features = model.visual.trunk(batch)
-            else:
-                features = model(batch)
+            features = model(batch)
             if isinstance(features, tuple):
                 features = features[0]
             features = features.cpu().numpy()
@@ -158,7 +155,10 @@ def main():
         backbone = resnet50_baseline(pretrained=True)
         input_dim = 1024
     elif args.base_model == 'biomedclip':
-        backbone, preprocess_val = biomedCLIP_backbone()
+        if args.without_head:
+            backbone, preprocess_val = biomedCLIP_backbone(without_head=True)
+        else:
+            backbone, preprocess_val = biomedCLIP_backbone()
         input_dim = 512
     print('load backbone successfully')
     
