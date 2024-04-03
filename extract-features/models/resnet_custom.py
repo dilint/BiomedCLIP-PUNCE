@@ -72,7 +72,6 @@ class ResNet_Baseline(nn.Module):
         ## 一个映射层
         self.hide_layer = nn.Linear(1024, 1024)
         
-        
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -99,7 +98,6 @@ class ResNet_Baseline(nn.Module):
 
         return x
     
-    
     def forward(self, x):
         x = self.conv1(x)
         x = self.bn1(x)
@@ -113,8 +111,6 @@ class ResNet_Baseline(nn.Module):
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         return x
-
-
 
 class ResNet_HideLayer(ResNet_Baseline):
     def forward(self, x):

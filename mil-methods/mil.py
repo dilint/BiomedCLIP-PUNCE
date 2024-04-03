@@ -83,7 +83,7 @@ def main(args):
             acs, pre, rec,fs,auc,te_auc,te_fs = ckp['ckc_metric']
         else:
             acs, pre, rec,fs,auc = ckp['ckc_metric']
-
+    
     for k in range(args.fold_start, args.cv_fold):
         if not args.no_log:
             print('Start %d-fold cross validation: fold %d ' % (args.cv_fold, k))
@@ -725,6 +725,7 @@ if __name__ == '__main__':
     parser.add_argument('--persistence', action='store_true', help='Load data into memory') 
     parser.add_argument('--same_psize', default=0, type=int, help='Keep the same size of all patches [0]')
     parser.add_argument('--high_weight', default=1.0, type=float, help='the weight loss for high risk wsi of gc dataset')
+    parser.add_argument('--train_val', action='store_true', help='use train and val set to train the model')
 
     # Train
     parser.add_argument('--cls_alpha', default=1.0, type=float, help='Main loss alpha')
@@ -746,7 +747,6 @@ if __name__ == '__main__':
     parser.add_argument('--accumulation_steps', default=1, type=int, help='Gradient accumulate')
     parser.add_argument('--clip_grad', default=.0, type=float, help='Gradient clip')
     parser.add_argument('--always_test', action='store_true', help='Test model in the training phase')
-    parser.add_argument('--train_val', action='store_true', help='use train and val set to train the model')
 
     # Model
     # Other models
