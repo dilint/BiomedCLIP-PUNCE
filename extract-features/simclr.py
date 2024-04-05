@@ -315,8 +315,10 @@ def train(args) -> None:
         backbone = resnet50_baseline(pretrained=True)
         input_dim = 1024
     elif args.backbone == 'biomedCLIP':
-        backbone, _ = biomedCLIP_backbone()
+        backbone, _ = biomedCLIP_backbone(args.without_head)
         input_dim = 512
+        if args.without_head:
+            input_dim = 768
     for name, param in backbone.named_parameters():
         param.requires_grad = False
     adapter = LinearAdapter(input_dim)
@@ -418,6 +420,7 @@ if __name__ == '__main__':
     
     # model
     parser.add_argument('--backbone', type=str, default='resnet50', choices=['resnet50', 'biomedCLIP'])
+    parser.add_argument('--without_head', action='store_true')
     # parser.add_argument('--proj_hidden_dim', default=128, type=int, help='dimension of projected features')
     
     # train 

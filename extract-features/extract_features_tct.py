@@ -155,10 +155,7 @@ def main():
         backbone = resnet50_baseline(pretrained=True)
         input_dim = 1024
     elif args.base_model == 'biomedclip':
-        if args.without_head:
-            backbone, preprocess_val = biomedCLIP_backbone(without_head=True)
-        else:
-            backbone, preprocess_val = biomedCLIP_backbone()
+        backbone, preprocess_val = biomedCLIP_backbone(args.without_head)
         input_dim = 512
     print('load backbone successfully')
     
