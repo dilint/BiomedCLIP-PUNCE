@@ -157,6 +157,8 @@ def main():
     elif args.base_model == 'biomedclip':
         backbone, preprocess_val = biomedCLIP_backbone(args.without_head)
         input_dim = 512
+        if args.without_head:
+            input_dim = 768
     print('load backbone successfully')
     
     if args.with_adapter:
