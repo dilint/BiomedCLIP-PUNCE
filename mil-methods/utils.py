@@ -117,7 +117,6 @@ def six_scores(bag_labels, bag_predictions, thres):
     fpr_optimal, tpr_optimal, threshold_optimal = optimal_thresh(fpr, tpr, threshold)
     if thres != 0:
         threshold_optimal = thres
-    # threshold_optimal=0.5
     auc_value = roc_auc_score(bag_labels, bag_predictions)
     this_class_label = np.array(bag_predictions)
     this_class_label[this_class_label>=threshold_optimal] = 1
