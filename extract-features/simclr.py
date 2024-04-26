@@ -17,8 +17,9 @@ from torchvision.models import resnet18, resnet34
 from torchvision import transforms
 
 from models.model_simclr import SimCLR, SimCLR_custome
-from models.model_backbone import resnet50_baseline, biomedCLIP_backbone
+from models.model_backbone import resnet_backbone, biomedCLIP_backbone
 from models.model_adapter import LinearAdapter
+from utils.utils import seed_torch
 
 from tqdm import tqdm
 import os
@@ -267,10 +268,6 @@ def train(args) -> None:
                                           transforms.RandomHorizontalFlip(p=0.5),
                                           get_color_distortion(s=0.5),
                                           transforms.ToTensor()])
-    # train_transform = transforms.Compose([
-    #                                       transforms.RandomHorizontalFlip(p=0.5),
-    #                                       get_color_distortion(s=0.5),
-    #                                       transforms.ToTensor()])
     
     # set dataset 
     if args.dataset == 'cifar10':
@@ -312,8 +309,14 @@ def train(args) -> None:
     print(len(train_set))
     
     if args.backbone == 'resnet50':
-        backbone = resnet50_baseline(pretrained=True)
+        backbone = resnet_backbone(pretrained=True, name='resnet50')
         input_dim = 1024
+    elif args.backbone == 'resnet34':
+        backbone = resnet_backbone(pretrained=True, name='resnet34')
+        input_dim = 512
+    elif args.backbone == 'resnet18':
+        backbone = resnet_backbone(pretrained=True, name='resnet18')
+        input_dim = 512
     elif args.backbone == 'biomedCLIP':
         backbone, _ = biomedCLIP_backbone(args.without_head)
         input_dim = 512
@@ -322,9 +325,13 @@ def train(args) -> None:
     for name, param in backbone.named_parameters():
         param.requires_grad = False
     adapter = LinearAdapter(input_dim)
-    for _, param in adapter.named_parameters():
-        param.requires_grad = True
     base_model = nn.Sequential(backbone, adapter)
+    if not args.not_frozen:
+        ## train the whole backbone
+        for _, param in adapter.named_parameters():
+            param.requires_grad = True
+        base_model = backbone
+        
     model = SimCLR_custome(base_model, feature_dim=input_dim)
     model = model.cuda()
     
@@ -394,14 +401,17 @@ def train(args) -> None:
             pass
         else:
             ckp = {
-                'adapter': adapter.state_dict(),
                 'projector': {k: v for k, v in model.state_dict().items() if k.startswith('projector')},
                 'lr_sche': scheduler.state_dict(),
                 'optimizer': optimizer.state_dict(),
                 'epoch': epoch,
                 'wandb_id': wandb.run.id if args.wandb else '',
             }
-
+            if not args.not_frozen:
+                ckp['adapter'] = adapter.state_dict()
+            else: 
+                ckp['model'] = backbone.state_dict()
+                
             if epoch >= args.log_interval and epoch % args.log_interval == 0:
                 print("==> Save checkpoint. Train epoch {}, SimCLR loss: {:.4f}".format(epoch, loss_meter.avg))
                 torch.save(ckp, os.path.join(args.model_path, '{}_epoch{}.pt'.format(args.title, epoch)))
@@ -419,8 +429,9 @@ if __name__ == '__main__':
     # parser.add_argument('--target_patch_size', type=int, nargs='+', default=(1333, 800))
     
     # model
-    parser.add_argument('--backbone', type=str, default='resnet50', choices=['resnet50', 'biomedCLIP'])
+    parser.add_argument('--backbone', type=str, default='resnet50', choices=['resnet50', 'biomedCLIP', 'resnet18', 'resnet34'])
     parser.add_argument('--without_head', action='store_true')
+    parser.add_argument('--not_frozen', action='store_true')
     # parser.add_argument('--proj_hidden_dim', default=128, type=int, help='dimension of projected features')
     
     # train 
@@ -469,4 +480,5 @@ if __name__ == '__main__':
             else:
                 wandb.init(project=args.project, name=args.title,config=args,dir=os.path.join(args.model_path))
     
+    seed_torch(args.seed)
     train(args)

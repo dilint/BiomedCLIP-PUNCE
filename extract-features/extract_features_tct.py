@@ -8,9 +8,8 @@ import os
 import copy
 import time
 from torch.utils.data import DataLoader, Dataset
-from models.resnet_custom import resnet50_baseline
 from models.model_adapter import LinearAdapter
-from models.model_backbone import resnet50_baseline, biomedCLIP_backbone
+from models.model_backbone import biomedCLIP_backbone, resnet_backbone
 import argparse
 from utils.file_utils import save_hdf5
 from PIL import Image
@@ -101,7 +100,7 @@ def main():
     parser.add_argument('--world_size', type=int, default=1)
     parser.add_argument('--target_patch_size', type=int, nargs='+', default=(224, 224))
     # model options
-    parser.add_argument('--base_model', default='resnet50', type=str, choices=['biomedclip', 'resnet50'])
+    parser.add_argument('--base_model', default='resnet50', type=str, choices=['biomedclip', 'resnet50', 'resnet34', 'resnet18'])
     parser.add_argument('--with_adapter', action='store_true')
     parser.add_argument('--ckp_path', type=str, default=None)
     parser.add_argument('--without_head', action='store_true')
@@ -152,8 +151,14 @@ def main():
     print('loading model')
     preprocess_val = None
     if args.base_model == 'resnet50':
-        backbone = resnet50_baseline(pretrained=True)
+        backbone = resnet_backbone(pretrained=True, name='resnet50')
         input_dim = 1024
+    elif args.base_model == 'resnet34':
+        backbone = resnet_backbone(pretrained=True, name='resnet34')
+        input_dim = 512
+    elif args.base_model == 'resnet18':
+        backbone = resnet_backbone(pretrained=True, name='resnet18')
+        input_dim = 512
     elif args.base_model == 'biomedclip':
         backbone, preprocess_val = biomedCLIP_backbone(args.without_head)
         input_dim = 512
