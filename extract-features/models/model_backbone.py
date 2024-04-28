@@ -17,12 +17,24 @@ model_urls = {
     'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
     'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
 }
-
+resnet50_model_path = ''
 
 def resnet_backbone(pretrained, name):
     if name == 'resnet50':
-        model_baseline = models.resnet50(pretrained=pretrained)
-        model_baseline.layer4 = torch.nn.Identity()
+        resnet = models.resnet50(pretrained=False)
+        resnet.fc = nn.Sequential(
+                        nn.Linear(2048, 2048), nn.ReLU(), nn.Linear(2048, 128)
+                    )
+        pth = torch.load(resnet50_model_path)
+        weights = pth['state_dict']
+        new_weights = dict()
+        for weight_key in weights.keys(): 
+            if 'module.encoder_q.' in weight_key:
+                new_key = weight_key.replace('module.encoder_q.', '')
+                new_weights[new_key] = weights[weight_key]
+        print(resnet.load_state_dict(new_weights, strict=False))
+        return resnet
+    
     elif name == 'resnet34':
         model_baseline = models.resnet34(pretrained=pretrained)
     elif name == 'resnet18':

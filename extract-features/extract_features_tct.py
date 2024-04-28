@@ -151,8 +151,8 @@ def main():
     print('loading model')
     preprocess_val = None
     if args.base_model == 'resnet50':
-        backbone = resnet_backbone(pretrained=True, name='resnet50')
-        input_dim = 1024
+        backbone = resnet_backbone(pretrained=False, name='resnet50')
+        input_dim = 128
     elif args.base_model == 'resnet34':
         backbone = resnet_backbone(pretrained=True, name='resnet34')
         input_dim = 512
