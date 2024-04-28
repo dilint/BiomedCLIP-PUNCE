@@ -717,7 +717,7 @@ if __name__ == '__main__':
 
     # Dataset 
     parser.add_argument('--datasets', default='gc', type=str, help='[camelyon16, tcga, ngc, gc]')
-    parser.add_argument('--dataset_root', default='../extract-features/result-final-gc-features/adapter_v2', type=str, help='Dataset root path')
+    parser.add_argument('--dataset_root', default='../extract-features/result-final-gc-features/resnet50', type=str, help='Dataset root path')
     parser.add_argument('--label_path', default='../datatools/tct-gc/labels', type=str, help='label of train dataset')
     parser.add_argument('--tcga_max_patch', default=-1, type=int, help='Max Number of patch in TCGA [-1]')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
@@ -760,7 +760,7 @@ if __name__ == '__main__':
     parser.add_argument('--dropout', default=0.25, type=float, help='Dropout in the projection head')
     parser.add_argument('--n_heads', default=8, type=int, help='Number of head in the MSA')
     parser.add_argument('--da_act', default='relu', type=str, help='Activation func in the DAttention [gelu,relu]')
-    parser.add_argument('--input_dim', default=768, type=int, help='The dimention of patch feature')
+    parser.add_argument('--input_dim', default=128, type=int, help='The dimention of patch feature')
 
     # Shuffle
     parser.add_argument('--patch_shuffle', action='store_true', help='2-D group shuffle')
@@ -789,7 +789,7 @@ if __name__ == '__main__':
     parser.add_argument('--mm_sche', action='store_true', help='Cosine schedule of ema decay')
 
     # Misc
-    parser.add_argument('--title', default='biomed3-maxmil-gc-trainval-test', type=str, help='Title of exp')
+    parser.add_argument('--title', default='resnet50-vit-gc-trainval', type=str, help='Title of exp')
     parser.add_argument('--project', default='mil-methods', type=str, help='Project name of exp')
     parser.add_argument('--log_iter', default=100, type=int, help='Log Frequency')
     parser.add_argument('--amp', action='store_true', help='Automatic Mixed Precision Training')

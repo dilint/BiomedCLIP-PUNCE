@@ -3,7 +3,7 @@ from timm.utils import AverageMeter,dispatch_clip_grad
 from utils import *
 import argparse, os
 from torch.utils.data import DataLoader, RandomSampler
-from modules import attmil,clam,mhim,dsmil,transmil,mean_max
+from modules import attmil,clam,mhim,dsmil,transmil,mean_max, vit
 from dataloader import *
 
 def main(args):
@@ -95,7 +95,9 @@ def main(args):
         model = mean_max.MeanMIL(n_classes=args.n_classes,dropout=args.dropout,act=args.act,input_dim=args.input_dim).to(device)
     elif args.model == 'maxmil':
         model = mean_max.MaxMIL(n_classes=args.n_classes,dropout=args.dropout,act=args.act,input_dim=args.input_dim).to(device)
-
+    elif args.model == 'vit':
+        model = vit.vit_base_patch16_224_in21k(num_classes=2, has_logits=False, input_dim=args.input_dim).to(device)
+    
     best_std = torch.load(os.path.join(args.ckp_path, 'fold_{fold}_model_best_auc.pt'.format(fold=k)))
     info = model.load_state_dict(best_std['model'])
     print(info)
@@ -173,8 +175,8 @@ if __name__ == '__main__':
     
     # Dataset 
     parser.add_argument('--datasets', default='tct', type=str, help='[camelyon16, tcga, tct]')
-    parser.add_argument('--dataset_root', default='extract-features/result-final-gc-features/biomed1', type=str, help='Dataset root path')
-    parser.add_argument('--label_path', default='datatools/tct-gc/labels', type=str, help='label of train dataset')
+    parser.add_argument('--dataset_root', default='../extract-features/result-final-gc-features/resnet50', type=str, help='Dataset root path')
+    parser.add_argument('--label_path', default='../datatools/tct-gc/labels', type=str, help='label of train dataset')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
     parser.add_argument('--fix_train_random', action='store_true', help='Fix random seed of Training')
     parser.add_argument('--persistence', action='store_true', help='Load data into memory') 
@@ -187,14 +189,14 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', default=1, type=int, help='Number of batch size')
     parser.add_argument('--loss', default='ce', type=str, help='Classification Loss [ce, bce]')
     parser.add_argument('--n_classes', default=2, type=int, help='Number of classes')
-    parser.add_argument('--model', default='pure', type=str, help='Model name')
+    parser.add_argument('--model', default='vit', type=str, help='Model name')
     parser.add_argument('--seed', default=2024, type=int, help='random number [2021]' )
     parser.add_argument('--baseline', default='attn', type=str, help='Baselin model [attn,selfattn]')
     parser.add_argument('--act', default='relu', type=str, help='Activation func in the projection head [gelu,relu]')
     parser.add_argument('--dropout', default=0.25, type=float, help='Dropout in the projection head')
     parser.add_argument('--n_heads', default=8, type=int, help='Number of head in the MSA')
     parser.add_argument('--da_act', default='relu', type=str, help='Activation func in the DAttention [gelu,relu]')
-    parser.add_argument('--input_dim', default=512, type=int, help='The dimention of patch feature')
+    parser.add_argument('--input_dim', default=128, type=int, help='The dimention of patch feature')
 
     # Shuffle
     parser.add_argument('--patch_shuffle', action='store_true', help='2-D group shuffle')
@@ -227,7 +229,7 @@ if __name__ == '__main__':
     parser.add_argument('--threshold', default=0, type=float, help='the threshold of classification')
     parser.add_argument('--no_log', action='store_true', help='Without log')
     parser.add_argument('--c_h', action='store_true')
-    parser.add_argument('--ckp_path', type=str, default='mil-methods/output-model/mil-methods/biomed1-meanmil-tct-trainval', help='Checkpoint path')
+    parser.add_argument('--ckp_path', type=str, default='output-model/mil-methods/resnet50-vit-gc-trainval', help='Checkpoint path')
     
     args = parser.parse_args()
     main(args)
