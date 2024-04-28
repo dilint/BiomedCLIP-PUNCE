@@ -366,6 +366,7 @@ def train(args) -> None:
     # SimCLR training
     model.train()
     for epoch in range(epoch_start, args.epochs + 1):
+        # train_loader.sampler.set_epoch(epoch)
         loss_meter = AverageMeter("SimCLR_loss")
         train_bar = tqdm(train_loader)
         for x, y in train_bar:
