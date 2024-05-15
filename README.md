@@ -157,4 +157,33 @@ TITLE_NAME='biomed1-mhim(transmil)-tct-trainval'
 TEACHER_INIT=./output-model/mil-methods/biomed1-transmil-tct-trainval
 CUDA_VISIBLE_DEVICES=0, python3 mil.py --project=$PROJECT_NAME --dataset_root=$DATASET_PATH --model_path=$OUTPUT_PATH  --label_path=$LABEL_PATH --datasets=ngc --cv_fold=1 --input_dim=768 --teacher_init=$TEACHER_INIT --mask_ratio_h=0.03 --mask_ratio_hr=0.5 --mrh_sche --title=$TITLE_NAME --mask_ratio=0. --mask_ratio_l=0.8 --cl_alpha=0.1 --mm_sche --init_stu_type=fc --attn_layer=0 --seed=2024 --wandb
 ```
+## Eval 
+```bash
+# for abmil 
+FEATURE_NAME=biomed1
+DATASET=gc
+NUM_DIM=512
+ 
+DATASET_PATH=../extract-features/result-final-$DATASET-features/$FEATURE_NAME
+LABEL_PATH=../datatools/tct-$DATASET/labels
+OUTPUT_PATH=output-model
+PROJECT_NAME=mil-methods
 
+CHECKPOINT_PATH=$OUTPUT_PATH/$PROJECT_NAME/$FEATURE_NAME-abmil-$DATASET-trainval
+CUDA_VISIBLE_DEVICES=0, python3 eval.py --label_path=$LABEL_PATH  --dataset_root=$DATASET_PATH --ckp_path=$CHECKPOINT_PATH --datasets=tct --input_dim=$NUM_DIM --model=pure --baseline=attn --seed=2024
+
+# for transmil 
+FEATURE_NAME=biomed1
+DATASET=gc
+NUM_DIM=512
+ 
+DATASET_PATH=../extract-features/result-final-$DATASET-features/$FEATURE_NAME
+LABEL_PATH=../datatools/tct-$DATASET/labels
+OUTPUT_PATH=output-model
+PROJECT_NAME=mil-methods
+
+CHECKPOINT_PATH=$OUTPUT_PATH/$PROJECT_NAME/$FEATURE_NAME-transmil-$DATASET-trainval
+CUDA_VISIBLE_DEVICES=0, python3 eval.py --label_path=$LABEL_PATH  --dataset_root=$DATASET_PATH --ckp_path=$CHECKPOINT_PATH --datasets=tct --input_dim=$NUM_DIM --model=pure --baseline=selfattn --seed=2024
+
+
+```
