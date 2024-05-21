@@ -6,6 +6,8 @@ import torch.nn.functional as F
 from torchvision import models
 from torchsummary import summary
 import open_clip
+from transformers import CLIPModel,CLIPProcessor
+
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152']
@@ -34,12 +36,14 @@ def resnet_backbone(pretrained, name):
     return model_baseline
 
 
-def biomedCLIP_backbone(without_head: bool = False):
-    class Normalize_module(nn.Module):
+class Normalize_module(nn.Module):
         def __init__(self):
             super(Normalize_module, self).__init__()
         def forward(self, x):
             return F.normalize(x, dim=-1)
+
+def biomedCLIP_backbone(without_head: bool = False):
+    
     model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms('hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224')
     if without_head:
         model = model.visual.trunk
@@ -48,6 +52,16 @@ def biomedCLIP_backbone(without_head: bool = False):
     model = nn.Sequential(model, Normalize_module())
     return model, preprocess_val
 
+def clip_backbone(without_head: bool = False):
+    model, _ ,preprocess_val = open_clip.create_model_and_transforms('ViT-B-16', pretrained='laion2b_s34b_b88k')
+    model = nn.Sequential(model, Normalize_module())
+    return model, preprocess_val
+
+def plip_backbone():
+    backbone = CLIPModel.from_pretrained("vinid/plip")
+    preprocess_val = CLIPProcessor.from_pretrained("vinid/plip")
+    return model, preprocess_val
+    
 if __name__ == '__main__':
     model1 = resnet50_baseline()
     model = resnet_backbone()

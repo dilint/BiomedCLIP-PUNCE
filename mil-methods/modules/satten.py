@@ -73,7 +73,7 @@ class SAttention(nn.Module):
 
         return x_masked, mask, ids_restore
 
-    def forward(self, x, mask_ids=None, len_keep=None, return_attn=False,mask_enable=False):
+    def forward(self, x, mask_ids=None, len_keep=None, return_attn=False,mask_enable=False,no_norm=False):
         batch, num_patches, C = x.shape 
         
         attn = []

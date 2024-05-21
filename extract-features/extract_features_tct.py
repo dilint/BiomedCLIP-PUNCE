@@ -9,7 +9,7 @@ import copy
 import time
 from torch.utils.data import DataLoader, Dataset
 from models.model_adapter import LinearAdapter
-from models.model_backbone import biomedCLIP_backbone, resnet_backbone
+from models.model_backbone import biomedCLIP_backbone, resnet_backbone, clip_backbone, plip_backbone
 import argparse
 from utils.file_utils import save_hdf5
 from PIL import Image
@@ -74,7 +74,12 @@ def compute_w_loader(wsi_dir,
             if i % print_every == 0:
                 print('batch {}/{}, {} files processed'.format(i, len(loader), i * batch_size))
             batch = batch.to(device)
-            features = model(batch)
+            if args.base_model == 'plip':
+                features = model.vision_model(batch)[1]
+                features = model.vision_projection(features)
+                features /= features.norm(p=2, dim=-1, keepdim=True)
+            else:
+                features = model(batch)
             if isinstance(features, tuple):
                 features = features[0]
             features = features.cpu().numpy()
@@ -164,6 +169,12 @@ def main():
         input_dim = 512
         if args.without_head:
             input_dim = 768
+    elif args.base_model == 'clip_vit-b/16':
+        backbone, preprocess_val = clip_backbone()
+        input_dim = 512
+    elif args.base_model == 'plip_vit-b/32':
+        backbone, preprocess_val = plip_backbone()
+        input_dim = 512
     print('load backbone successfully')
     
     if args.with_adapter:
