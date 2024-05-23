@@ -17,7 +17,7 @@ from torchvision.models import resnet18, resnet34
 from torchvision import transforms
 
 from models.model_simclr import SimCLR, SimCLR_custome
-from models.model_backbone import resnet_backbone, biomedCLIP_backbone
+from models.model_backbone import ResnetBackbone, BiomedclipBackbone, ClipBackbone, PlipBackbone
 from models.model_adapter import LinearAdapter
 from utils.utils import seed_torch
 
@@ -104,13 +104,14 @@ class CIFAR10Pair(CIFAR10):
         x, y = x[perm], y[perm]
         return x, y, _prior
 
-class Whole_Slide_Patchs_Ngc(Dataset):
+class Whole_Slide_Patchs_Tct(Dataset):
     # pos is 0 and neg is 1, because all patches of the neg wsi are neg,
     # but pos wsi includes pos and neg patches 
     def __init__(self,
                  data_dir,
                  train_label_path,
                  transform,
+                 preprocess_val,
                  is_ngc,
                  load_cpu,):
         # get img_path
@@ -148,6 +149,7 @@ class Whole_Slide_Patchs_Ngc(Dataset):
         self.img_paths = img_paths
         # the size is too big
         self.transform = transform
+        self.preprocess_val = preprocess_val
         self.load_cpu = False
         if load_cpu:
             self.load_cpu = True
@@ -164,7 +166,10 @@ class Whole_Slide_Patchs_Ngc(Dataset):
         target = 0 
         if 'NILM' in str(path):
             target = 1
-        imgs =  [self.transform(img), self.transform(img)]
+        # img1 = self.preprocess_val(self.transform(img))
+        # img2 = self.preprocess_val(self.transform(img))
+        img1, img2 = self.transform(img), self.transform(img)
+        imgs = [img1, img2]
         return torch.stack(imgs), target
     
     def __len__(self):
@@ -264,11 +269,34 @@ def train(args) -> None:
     assert torch.cuda.is_available()
     cudnn.benchmark = True
 
+    if args.backbone == 'resnet50':
+        backbone = ResnetBackbone(pretrained=True, name='resnet50')
+        input_dim = 1024
+    elif args.backbone == 'resnet34':
+        backbone = ResnetBackbone(pretrained=True, name='resnet34')
+        input_dim = 512
+    elif args.backbone == 'resnet18':
+        backbone = ResnetBackbone(pretrained=True, name='resnet18')
+        input_dim = 512
+    elif args.backbone == 'biomedclip':
+        backbone = BiomedclipBackbone(args.without_head)
+        input_dim = 512
+        if args.without_head:
+            input_dim = 768
+    elif args.backbone == 'clip':
+        backbone = ClipBackbone()
+        input_dim = 512
+    elif args.backbone == 'plip':
+        backbone = PlipBackbone()
+        input_dim = 512
+    preprocess_val = backbone.preprocess_val
+    
     train_transform = transforms.Compose([transforms.RandomResizedCrop(224),
                                           transforms.RandomHorizontalFlip(p=0.5),
                                           get_color_distortion(s=0.5),
-                                          transforms.ToTensor()])
-    
+                                          transforms.ToTensor(),
+                                          ])
+
     # set dataset 
     if args.dataset == 'cifar10':
         train_set = CIFAR10Pair(root=args.data_dir,
@@ -276,18 +304,20 @@ def train(args) -> None:
                                 transform=train_transform,
                                 download=True)
     elif args.dataset == 'ngc':
-        train_set = Whole_Slide_Patchs_Ngc(
+        train_set = Whole_Slide_Patchs_Tct(
             data_dir=args.data_dir,
             train_label_path=args.train_label_path,
             transform=train_transform,
+            preprocess_val=preprocess_val,
             is_ngc=True,
             load_cpu=args.load_cpu
         )
     elif args.dataset == 'gc':
-        train_set = Whole_Slide_Patchs_Ngc(
+        train_set = Whole_Slide_Patchs_Tct(
             data_dir=args.data_dir,
             train_label_path=args.train_label_path,
             transform=train_transform,
+            preprocess_val=preprocess_val,
             is_ngc=False,
             load_cpu=args.load_cpu
         )
@@ -308,20 +338,8 @@ def train(args) -> None:
                                 drop_last=True)
     print(len(train_set))
     
-    if args.backbone == 'resnet50':
-        backbone = resnet_backbone(pretrained=True, name='resnet50')
-        input_dim = 1024
-    elif args.backbone == 'resnet34':
-        backbone = resnet_backbone(pretrained=True, name='resnet34')
-        input_dim = 512
-    elif args.backbone == 'resnet18':
-        backbone = resnet_backbone(pretrained=True, name='resnet18')
-        input_dim = 512
-    elif args.backbone == 'biomedCLIP':
-        backbone, _ = biomedCLIP_backbone(args.without_head)
-        input_dim = 512
-        if args.without_head:
-            input_dim = 768
+
+    
     for name, param in backbone.named_parameters():
         param.requires_grad = False
     adapter = LinearAdapter(input_dim)
@@ -430,7 +448,7 @@ if __name__ == '__main__':
     # parser.add_argument('--target_patch_size', type=int, nargs='+', default=(1333, 800))
     
     # model
-    parser.add_argument('--backbone', type=str, default='resnet50', choices=['resnet50', 'biomedCLIP', 'resnet18', 'resnet34'])
+    parser.add_argument('--backbone', type=str, default='resnet50', choices=['resnet50', 'biomedclip', 'resnet18', 'resnet34', 'plip', 'clip'])
     parser.add_argument('--without_head', action='store_true')
     parser.add_argument('--not_frozen', action='store_true')
     # parser.add_argument('--proj_hidden_dim', default=128, type=int, help='dimension of projected features')

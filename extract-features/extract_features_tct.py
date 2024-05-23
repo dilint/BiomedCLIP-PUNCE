@@ -9,7 +9,7 @@ import copy
 import time
 from torch.utils.data import DataLoader, Dataset
 from models.model_adapter import LinearAdapter
-from models.model_backbone import biomedCLIP_backbone, resnet_backbone, clip_backbone, plip_backbone
+from models.model_backbone import ResnetBackbone, BiomedclipBackbone, ClipBackbone, PlipBackbone
 import argparse
 from utils.file_utils import save_hdf5
 from PIL import Image
@@ -83,15 +83,7 @@ def compute_w_loader(wsi_dir,
             if i % print_every == 0:
                 print('batch {}/{}, {} files processed'.format(i, len(loader), i * batch_size))
             batch = batch.to(device)
-            if args.base_model == 'plip':
-                features = model.vision_model(batch)[1]
-                features = model.visual_projection(features)
-                features /= features.norm(p=2, dim=-1, keepdim=True)
-            elif args.base_model == 'clip':
-                features = model.encode_image(batch)
-                features /= features.norm(p=2, dim=-1, keepdim=True)
-            else:
-                features = model(batch)
+            features = model(batch)
             if isinstance(features, tuple):
                 features = features[0]
             features = features.cpu().numpy()
@@ -168,25 +160,26 @@ def main():
     print('loading model')
     preprocess_val = None
     if args.base_model == 'resnet50':
-        backbone = resnet_backbone(pretrained=True, name='resnet50')
+        backbone = ResnetBackbone(pretrained=True, name='resnet50')
         input_dim = 1024
     elif args.base_model == 'resnet34':
-        backbone = resnet_backbone(pretrained=True, name='resnet34')
+        backbone = ResnetBackbone(pretrained=True, name='resnet34')
         input_dim = 512
     elif args.base_model == 'resnet18':
-        backbone = resnet_backbone(pretrained=True, name='resnet18')
+        backbone = ResnetBackbone(pretrained=True, name='resnet18')
         input_dim = 512
     elif args.base_model == 'biomedclip':
-        backbone, preprocess_val = biomedCLIP_backbone(args.without_head)
+        backbone = BiomedclipBackbone(args.without_head)
         input_dim = 512
         if args.without_head:
             input_dim = 768
     elif args.base_model == 'clip':
-        backbone, preprocess_val = clip_backbone()
+        backbone = ClipBackbone()
         input_dim = 512
     elif args.base_model == 'plip':
-        backbone, preprocess_val = plip_backbone()
+        backbone = PlipBackbone()
         input_dim = 512
+    preprocess_val = backbone.preprocess_val
     print('load backbone successfully')
     
     if args.with_adapter:
@@ -195,8 +188,7 @@ def main():
         adapter.load_state_dict(ckp['adapter'])
         model = nn.Sequential(backbone, adapter).to(device)
     else:
-        # model = nn.Sequential(backbone).to(device)
-        model = backbone.to(device)
+        model = nn.Sequential(backbone).to(device)
     model.eval()
     total = len(wsi_dirs)    
 

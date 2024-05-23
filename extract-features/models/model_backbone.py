@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
 import torch
 import torch.nn.functional as F
-from torchvision import models
+from torchvision import models, transforms
 from torchsummary import summary
 import open_clip
 from transformers import CLIPModel,CLIPProcessor
@@ -20,6 +20,7 @@ model_urls = {
     'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
 }
 
+    
 
 def resnet_backbone(pretrained, name):
     if name == 'resnet50':
@@ -61,9 +62,87 @@ def plip_backbone():
     preprocess_val = CLIPProcessor.from_pretrained("vinid/plip")
     return backbone, preprocess_val
     
+    
+class ResnetBackbone(nn.Module):
+    def __init__(self, pretrained, name, device):
+        super(ResnetBackbone, self).__init__()
+        if name == 'resnet50':
+            model_baseline = models.resnet50(pretrained=pretrained)
+            model_baseline.layer4 = torch.nn.Identity()
+        elif name == 'resnet34':
+            model_baseline = models.resnet34(pretrained=pretrained)
+        elif name == 'resnet18':
+            model_baseline = models.resnet18(pretrained=pretrained)
+            
+        model_baseline.fc = torch.nn.Identity()
+        pretrained_dict = model_zoo.load_url(model_urls[name])
+        model_baseline.load_state_dict(pretrained_dict, strict=False)
+        self.model = model_baseline
+        self.preprocess_val = transforms.Compose([
+            transforms.Resize((224,224)),
+            transforms.ToTensor(),
+        ])
+        
+    def forward(self, x):
+        return self.model(x)
+    
+class BiomedclipBackbone(nn.Module):
+    def __init__(self, without_head: bool = False):
+        super(BiomedclipBackbone, self).__init__()
+        
+        model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms('hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224')
+        if without_head:
+            model = model.visual.trunk
+        else:
+            model = model.visual
+        self.model = model
+        self.preprocess_val = preprocess_val
+    
+    def forward(self, x):
+        features = self.model(x)
+        features /= features.norm(p=2, dim=-1, keepdim=True)
+        return features
+        
+class ClipBackbone(nn.Module):
+    def __init__(self, without_head: bool = False):
+        super(ClipBackbone, self).__init__()
+        model, _ ,preprocess_val = open_clip.create_model_and_transforms('ViT-B-16', pretrained='laion2b_s34b_b88k')
+        self.model = model
+        self.preprocess_val = preprocess_val
+
+    def forward(self, x):
+        model = self.model
+        features = model.encode_image(x)
+        features /= features.norm(p=2, dim=-1, keepdim=True)
+        return features
+
+class PlipBackbone(nn.Module):
+    def __init__(self, without_head: bool = False):
+        super(PlipBackbone, self).__init__()
+        backbone = CLIPModel.from_pretrained("vinid/plip")
+        preprocess_val = CLIPProcessor.from_pretrained("vinid/plip")
+        self.model = backbone
+        self.preprocess_val = preprocess_val
+
+    def forward(self, x):
+        model = self.model
+        features = model.vision_model(x)[1]
+        features = model.visual_projection(features)
+        features /= features.norm(p=2, dim=-1, keepdim=True)
+        return features
+
 if __name__ == '__main__':
-    data = torch.randn((1,3,224,224))
-    model, preprocess_val = plip_backbone()
-    features = model.vision_model(data)[1]
-    features = model.visual_projection(features)
-    print(features)
+    # data = torch.randn((1,3,224,224))
+    # device = 'cuda'
+    # data = data.to(device)
+    # backbone = BiomedclipBackbone(device)
+    # backbone.to(device)
+    # # norm_layer = Normalize_module().to(device)
+    # # backbone = nn.Sequential(backbone,norm_layer)
+    # features1 = backbone(data)
+    # features1 /= features1.norm(p=2, dim=-1, keepdim=True)
+    
+    clip = ClipBackbone()
+    biomed = BiomedclipBackbone()
+    print(clip.preprocess_val)
+    print(biomed.preprocess_val)
