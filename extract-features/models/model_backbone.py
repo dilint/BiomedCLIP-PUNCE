@@ -54,16 +54,16 @@ def biomedCLIP_backbone(without_head: bool = False):
 
 def clip_backbone(without_head: bool = False):
     model, _ ,preprocess_val = open_clip.create_model_and_transforms('ViT-B-16', pretrained='laion2b_s34b_b88k')
-    model = nn.Sequential(model, Normalize_module())
     return model, preprocess_val
 
 def plip_backbone():
     backbone = CLIPModel.from_pretrained("vinid/plip")
     preprocess_val = CLIPProcessor.from_pretrained("vinid/plip")
-    return model, preprocess_val
+    return backbone, preprocess_val
     
 if __name__ == '__main__':
-    model1 = resnet50_baseline()
-    model = resnet_backbone()
-    print(model1)
-    print(model)
+    data = torch.randn((1,3,224,224))
+    model, preprocess_val = plip_backbone()
+    features = model.vision_model(data)[1]
+    features = model.visual_projection(features)
+    print(features)

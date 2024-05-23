@@ -23,12 +23,15 @@ class Whole_Slide_Patchs_Ngc(Dataset):
     def __init__(self,
                  wsi_path,
                  target_patch_size,
-                 preprocess):
+                 preprocess,
+                 is_plip=False):
         # for resnet50
         self.preprocess = transforms.Compose([
             transforms.Resize(target_patch_size),
             transforms.ToTensor(),
         ])
+        # for plip
+        self.is_plip = is_plip
         # for biomedclip
         if preprocess != None:
             self.preprocess = preprocess
@@ -43,7 +46,10 @@ class Whole_Slide_Patchs_Ngc(Dataset):
             
     def __getitem__(self, idx):
         img = Image.open(self.patch_files[idx])
-        img = self.preprocess(img)
+        if self.is_plip:
+            img = self.preprocess(images=img, return_tensors='pt').data['pixel_values'].squeeze(0)
+        else:
+            img = self.preprocess(img)
         return img
     
     def __len__(self):
@@ -63,7 +69,10 @@ def compute_w_loader(wsi_dir,
     num_workers = args.num_workers
     verbose = args.verbose
     print_every = args.print_every
-    dataset = Whole_Slide_Patchs_Ngc(wsi_dir, target_patch_size, preprocess_val)
+    if args.base_model == 'plip':
+        dataset = Whole_Slide_Patchs_Ngc(wsi_dir, target_patch_size, preprocess_val, is_plip=True)
+    else:
+        dataset = Whole_Slide_Patchs_Ngc(wsi_dir, target_patch_size, preprocess_val)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     if verbose > 0:
         print('processing {}: total of {} batches'.format(wsi_dir,len(loader)))
@@ -76,7 +85,10 @@ def compute_w_loader(wsi_dir,
             batch = batch.to(device)
             if args.base_model == 'plip':
                 features = model.vision_model(batch)[1]
-                features = model.vision_projection(features)
+                features = model.visual_projection(features)
+                features /= features.norm(p=2, dim=-1, keepdim=True)
+            elif args.base_model == 'clip':
+                features = model.encode_image(batch)
                 features /= features.norm(p=2, dim=-1, keepdim=True)
             else:
                 features = model(batch)
@@ -91,9 +103,9 @@ def compute_w_loader(wsi_dir,
 def main():
     # set argsrget_patch
     parser = argparse.ArgumentParser(description='NGC dataset Feature Extraction')
-    parser.add_argument('--dataset', type=str, default='ngc', choices=['ngc', 'ubc', 'gc'])
-    parser.add_argument('--wsi_root', type=str, default='root/commonfile/wsi/ngc-2023-133')
-    parser.add_argument('--output_path', type=str, default='result-final-ngc-features')
+    parser.add_argument('--dataset', type=str, default='gc', choices=['ngc', 'ubc', 'gc'])
+    parser.add_argument('--wsi_root', type=str, default='/home1/wsi/gc-224')
+    parser.add_argument('--output_path', type=str, default='result-final-gc-features')
     parser.add_argument('--feat_dir', type=str, default='resnet-ori-test')
     parser.add_argument('--verbose', type=int, default=0)
     parser.add_argument('--print_every', type=int, default=20)
@@ -105,7 +117,7 @@ def main():
     parser.add_argument('--world_size', type=int, default=1)
     parser.add_argument('--target_patch_size', type=int, nargs='+', default=(224, 224))
     # model options
-    parser.add_argument('--base_model', default='resnet50', type=str, choices=['biomedclip', 'resnet50', 'resnet34', 'resnet18'])
+    parser.add_argument('--base_model', default='resnet50', type=str, choices=['biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip'])
     parser.add_argument('--with_adapter', action='store_true')
     parser.add_argument('--ckp_path', type=str, default=None)
     parser.add_argument('--without_head', action='store_true')
@@ -169,10 +181,10 @@ def main():
         input_dim = 512
         if args.without_head:
             input_dim = 768
-    elif args.base_model == 'clip_vit-b/16':
+    elif args.base_model == 'clip':
         backbone, preprocess_val = clip_backbone()
         input_dim = 512
-    elif args.base_model == 'plip_vit-b/32':
+    elif args.base_model == 'plip':
         backbone, preprocess_val = plip_backbone()
         input_dim = 512
     print('load backbone successfully')
@@ -183,7 +195,8 @@ def main():
         adapter.load_state_dict(ckp['adapter'])
         model = nn.Sequential(backbone, adapter).to(device)
     else:
-        model = nn.Sequential(backbone).to(device)
+        # model = nn.Sequential(backbone).to(device)
+        model = backbone.to(device)
     model.eval()
     total = len(wsi_dirs)    
 
