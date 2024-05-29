@@ -142,7 +142,6 @@ if __name__ == '__main__':
     # features1 = backbone(data)
     # features1 /= features1.norm(p=2, dim=-1, keepdim=True)
     
-    clip = ClipBackbone()
-    biomed = BiomedclipBackbone()
-    print(clip.preprocess_val)
-    print(biomed.preprocess_val)
+    model = ClipBackbone()
+    model.to('cuda')
+    print(summary(model, (3,224,224)))

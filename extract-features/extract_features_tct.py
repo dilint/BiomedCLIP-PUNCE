@@ -69,7 +69,7 @@ def compute_w_loader(wsi_dir,
     num_workers = args.num_workers
     verbose = args.verbose
     print_every = args.print_every
-    if args.base_model == 'plip':
+    if args.base_model == 'plip' and not args.default_preprocess:
         dataset = Whole_Slide_Patchs_Ngc(wsi_dir, target_patch_size, preprocess_val, is_plip=True)
     else:
         dataset = Whole_Slide_Patchs_Ngc(wsi_dir, target_patch_size, preprocess_val)
@@ -113,6 +113,7 @@ def main():
     parser.add_argument('--with_adapter', action='store_true')
     parser.add_argument('--ckp_path', type=str, default=None)
     parser.add_argument('--without_head', action='store_true')
+    parser.add_argument('--default_preprocess', action='store_true')
     args = parser.parse_args()
     
     if args.multi_gpu:
@@ -180,6 +181,13 @@ def main():
         backbone = PlipBackbone()
         input_dim = 512
     preprocess_val = backbone.preprocess_val
+    
+    if args.default_preprocess:
+        preprocess_val = transforms.Compose([
+            transforms.Resize((224, 224), interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.CenterCrop((224,224)),
+            transforms.ToTensor()])
+            
     print('load backbone successfully')
     
     if args.with_adapter:

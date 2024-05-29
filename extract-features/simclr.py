@@ -25,7 +25,6 @@ from tqdm import tqdm
 import os
 import argparse
 
-
 class AverageMeter(object):
     """Computes and stores the average and current value"""
     def __init__(self, name):
@@ -43,7 +42,6 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
-
 
 class CIFAR10Pair(CIFAR10):
     def __init__(self,
