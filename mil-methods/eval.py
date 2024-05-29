@@ -162,6 +162,21 @@ def test_loop(args,model,loader,device,c_h):
     if not c_h:
         if args.n_classes == 2:
             accuracy, auc_value, precision, recall, specificity, fscore = six_scores(bag_labels, bag_logits, args.threshold)
+            if args.output_auc:
+                fpr, tpr, threshold = roc_curve(bag_labels, bag_logits, pos_label=1)
+                auc_value = roc_auc_score(bag_labels, bag_logits)
+                roc_output_dir = 'output_roc'
+                feat_dir = args.dataset_root.split('/')[-1]
+                roc_par_dir = os.path.join(roc_output_dir, feat_dir)
+                if not os.path.exists(roc_par_dir):
+                    # 使用os.makedirs递归创建目录
+                    os.makedirs(roc_par_dir)
+                roc_output_fpr_path = os.path.join(roc_par_dir, 'fpr.npy')
+                roc_output_tpr_path = os.path.join(roc_par_dir, 'tpr.npy')
+                roc_output_auc_path = os.path.join(roc_par_dir, 'auc.npy')
+                np.save(roc_output_fpr_path, fpr)
+                np.save(roc_output_tpr_path, tpr)
+                np.save(roc_output_auc_path, auc_value)
         else:
             specificity = 0
             auc_value, accuracy, recall, precision, fscore = multi_class_scores(bag_labels, bag_logits)
@@ -229,6 +244,7 @@ if __name__ == '__main__':
     parser.add_argument('--threshold', default=0, type=float, help='the threshold of classification')
     parser.add_argument('--no_log', action='store_true', help='Without log')
     parser.add_argument('--c_h', action='store_true')
+    parser.add_argument('--output_auc', action='store_true')
     parser.add_argument('--ckp_path', type=str, default='output-model/mil-methods/resnet50-vit-gc-trainval', help='Checkpoint path')
     
     args = parser.parse_args()
