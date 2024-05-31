@@ -8,7 +8,7 @@ GPU_ID=0
 
 cd ../
 DATASET_PATH=../extract-features/result-final-$2-features/$1
-LABEL_PATH=../datatools/tct-$2/labels
+LABEL_PATH=../datatools/$2/labels
 OUTPUT_PATH=output-model
 PROJECT_NAME=mil-methods
 TITLE_NAME=$1-meanmil-$2-trainval

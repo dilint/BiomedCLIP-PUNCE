@@ -11,7 +11,7 @@ NUM_DIM=$3
 
 cd ../
 DATASET_PATH=../extract-features/result-final-$DATASET-features/$FEATURE_NAME
-LABEL_PATH=../datatools/tct-$DATASET/labels
+LABEL_PATH=../datatools/$DATASET/labels
 OUTPUT_PATH=output-model
 PROJECT_NAME=mil-methods
 TITLE_NAME=$FEATURE_NAME-abmil-$DATASET-trainval

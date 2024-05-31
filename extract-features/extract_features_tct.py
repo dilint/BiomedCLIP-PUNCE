@@ -95,7 +95,7 @@ def compute_w_loader(wsi_dir,
 def main():
     # set argsrget_patch
     parser = argparse.ArgumentParser(description='NGC dataset Feature Extraction')
-    parser.add_argument('--dataset', type=str, default='gc', choices=['ngc', 'ubc', 'gc'])
+    parser.add_argument('--dataset', type=str, default='gc', choices=['ngc', 'ubc', 'gc', 'fnac'])
     parser.add_argument('--wsi_root', type=str, default='/home1/wsi/gc-224')
     parser.add_argument('--output_path', type=str, default='result-final-gc-features')
     parser.add_argument('--feat_dir', type=str, default='resnet-ori-test')
@@ -146,6 +146,10 @@ def main():
             
     elif args.dataset == 'ubc':
         wsi_dirs = [os.path.join(wsi_root, subdir) for subdir in os.listdir(wsi_root)]
+    
+    elif args.dataset == 'fnac':
+        wsi_dirs = [os.path.join(wsi_root, subdir) for subdir in os.listdir(wsi_root)]
+        
     
     # get output path
     output_path = args.output_path

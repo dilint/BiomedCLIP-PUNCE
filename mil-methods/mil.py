@@ -24,7 +24,7 @@ def main(args):
     seed_torch(args.seed)
 
     # --->get dataset
-    if args.datasets.lower() == 'camelyon16':
+    if args.datasets.lower() == 'camelyon16':       
         label_path=os.path.join(args.dataset_root,'label.csv')
         p, l = get_patient_label(label_path)
         index = [i for i in range(len(p))]
@@ -39,8 +39,8 @@ def main(args):
         random.shuffle(index)
         p = p[index]
         l = l[index]
-
-    elif args.datasets.lower() == 'ngc' or 'gc':
+        
+    elif args.datasets.lower() == 'ngc' or 'gc' or 'fnac':
         train_p, train_l, test_p, test_l, val_p, val_l = [], [], [], [], [], []
         with open(args.train_label_path, 'r') as file:
             lines = file.readlines()
@@ -137,7 +137,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
             val_set = test_set
             
     # the split of ngc has been done 
-    elif args.datasets.lower() == 'ngc':
+    elif args.datasets.lower() == 'ngc' or 'fnac':
 
         train_set = C16Dataset(train_p[k],train_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,is_train=True)
         test_set = C16Dataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
@@ -713,7 +713,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MIL Training Script')
 
     # Dataset 
-    parser.add_argument('--datasets', default='camelyon16', type=str, help='[camelyon16, tcga, ngc, gc]')
+    parser.add_argument('--datasets', default='camelyon16', type=str, help='[camelyon16, tcga, ngc, gc, fnac]')
     parser.add_argument('--dataset_root', default='/data/xxx/TCGA', type=str, help='Dataset root path')
     parser.add_argument('--label_path', default='/root/project/MHIM-MIL/ngc-labels/train_label.csv', type=str, help='label of train dataset')
     parser.add_argument('--tcga_max_patch', default=-1, type=int, help='Max Number of patch in TCGA [-1]')
