@@ -110,7 +110,7 @@ class Whole_Slide_Patchs_Tct(Dataset):
                  train_label_path,
                  transform,
                  preprocess_val,
-                 is_ngc,
+                 dataset,
                  load_cpu,):
         # get img_path
         NGC_SUB_PATHS = [
@@ -123,11 +123,13 @@ class Whole_Slide_Patchs_Tct(Dataset):
             'NILM',
             'POS'
         ]
-        if is_ngc:
+        if dataset == 'ngc':
             sub_paths = NGC_SUB_PATHS
         else:
             sub_paths = GC_SUB_PATHS            
         data_roots = list(map(lambda x: os.path.join(data_dir, x), sub_paths)) 
+        if dataset == 'fnac':
+            data_roots = [data_dir]
         wsi_dirs = []
         train_wsi_lists = []
         img_paths = []
@@ -301,24 +303,16 @@ def train(args) -> None:
                                 train=True,
                                 transform=train_transform,
                                 download=True)
-    elif args.dataset == 'ngc':
+    else:
         train_set = Whole_Slide_Patchs_Tct(
             data_dir=args.data_dir,
             train_label_path=args.train_label_path,
             transform=train_transform,
             preprocess_val=preprocess_val,
-            is_ngc=True,
+            dataset=args.dataset,
             load_cpu=args.load_cpu
         )
-    elif args.dataset == 'gc':
-        train_set = Whole_Slide_Patchs_Tct(
-            data_dir=args.data_dir,
-            train_label_path=args.train_label_path,
-            transform=train_transform,
-            preprocess_val=preprocess_val,
-            is_ngc=False,
-            load_cpu=args.load_cpu
-        )
+    
     
     if args.ddp:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_set)
@@ -439,7 +433,7 @@ if __name__ == '__main__':
     
     parser.add_argument('--auto_resume', action='store_true', help='automatically resume training')
     # dataset
-    parser.add_argument('--dataset', type=str, default='ngc', choices=['cifar10', 'ngc', 'gc'])
+    parser.add_argument('--dataset', type=str, default='ngc', choices=['cifar10', 'ngc', 'gc', 'fnac'])
     parser.add_argument('--load_cpu', action='store_true')
     parser.add_argument('--data_dir', type=str, default='/home1/wsi/ngc-output-filter/meanmil')
     parser.add_argument('--train_label_path', type=str, default='datatools/ngc-2023/ngc_labels/train_label.csv')

@@ -64,7 +64,7 @@ def plip_backbone():
     
     
 class ResnetBackbone(nn.Module):
-    def __init__(self, pretrained, name, device):
+    def __init__(self, pretrained, name):
         super(ResnetBackbone, self).__init__()
         if name == 'resnet50':
             model_baseline = models.resnet50(pretrained=pretrained)
