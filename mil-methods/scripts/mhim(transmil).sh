@@ -5,7 +5,7 @@ echo "提取特征方式 ：$1"
 echo "数据集 ：$2"
 echo "输入维度 ：$3"
 echo "高风险权重 ：$4"
-GPU_ID=0
+GPU_ID=2
 
 cd ../
 DATASET_PATH=../extract-features/result-final-$2-features/$1

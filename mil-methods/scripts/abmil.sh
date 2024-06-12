@@ -3,7 +3,7 @@
 echo "提取特征方式 ：$1"
 echo "数据集 ：$2"
 echo "输入维度 ：$3"
-GPU_ID=1
+GPU_ID=2
 
 FEATURE_NAME=$1
 DATASET=$2

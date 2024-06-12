@@ -330,16 +330,16 @@ def train(args) -> None:
                                 drop_last=True)
     print(len(train_set))
     
-
     
-    for name, param in backbone.named_parameters():
-        param.requires_grad = False
-    adapter = LinearAdapter(input_dim)
-    base_model = nn.Sequential(backbone, adapter)
     if not args.not_frozen:
+        for name, param in backbone.named_parameters():
+            param.requires_grad = False
+        adapter = LinearAdapter(input_dim)
+        base_model = nn.Sequential(backbone, adapter)
         ## train the whole backbone
         for _, param in adapter.named_parameters():
             param.requires_grad = True
+    else:
         base_model = backbone
         
     model = SimCLR_custome(base_model, feature_dim=input_dim)
