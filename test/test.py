@@ -12,7 +12,9 @@ vis_image = vis_patch + '.jpg'
 vis_txt = vis_patch + '.txt'
 vis_image_path = os.path.join(input_dir, vis_image)
 
+vis_image_path = '3_31.jpg'
 # 打开图片
+
 image = Image.open(vis_image_path)
 
 

@@ -10,8 +10,8 @@ pip install jupyter
 conda install pytorch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 cudatoolkit=11.3 -c pytorch
 pip install open-clip-torch transformers matplotlib
 pip install h5py scikit-learn==0.22.1 future==0.18.3
-pip install wandb==0.15 torchsummary==1.5.1, torchmetrics
-pip install einops, chardet
+pip install wandb==0.15 torchsummary==1.5.1 torchmetrics
+pip install einops chardet
 ```
 
 
