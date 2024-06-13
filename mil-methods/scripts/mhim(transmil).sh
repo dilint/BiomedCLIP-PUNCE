@@ -11,7 +11,7 @@ cd ../
 DATASET_PATH=../extract-features/result-final-$2-features/$1
 LABEL_PATH=../datatools/$2/labels
 OUTPUT_PATH=output-model
-PROJECT_NAME=mil-methods
+PROJECT_NAME=mil-methods-info
 TITLE_NAME="$1-mhim(transmil)-$2-trainval"
 TEACHER_INIT=./output-model/mil-methods/$1-transmil-$2-trainval
 # TITLE_NAME="$1-mhim(transmil)-$2-trainval-$4"
