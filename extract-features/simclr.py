@@ -344,6 +344,7 @@ def train(args) -> None:
         
     model = SimCLR_custome(base_model, feature_dim=input_dim)
     model = model.cuda()
+    print(model)
     
     if args.ddp:
         model = nn.parallel.DistributedDataParallel(model)
