@@ -4,7 +4,7 @@
 echo "提取特征方式 ：$1"
 echo "数据集 ：$2"
 echo "输入维度 ：$3"
-GPU_ID=2
+GPU_ID=0
 SERVER=2080
 
 cd ../
