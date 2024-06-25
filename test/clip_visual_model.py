@@ -310,7 +310,7 @@ class CLIPViT(nn.Module):
     def load_from(self, pretrained:str):
         print(f'load backbone from: {pretrained}')
         clip_visual_path = {
-            'biomedclip':'/root/commonfile/wsi/biomed_clip_visual.pth',
+            'biomedclip':'/home1/wsi/biomed_clip_visual.pth',
         }
         state_dict = torch.load(clip_visual_path[pretrained])
         backbone_state_dict = {}
