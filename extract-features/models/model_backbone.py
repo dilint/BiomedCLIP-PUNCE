@@ -6,11 +6,17 @@ import torch.nn.functional as F
 from torchvision import models, transforms
 from torchsummary import summary
 import open_clip
-from transformers import CLIPModel,CLIPProcessor
+from transformers import CLIPModel, CLIPProcessor
 
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152']
+
+
+# dinov2: https://github.com/facebookresearch/dinov2
+# BiomedCLIP: https://huggingface.co/microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224
+# CLIP: https://github.com/mlfoundations/open_clip
+# PLIP: https://github.com/PathologyFoundation/plip
 
 model_urls = {
     'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
@@ -19,9 +25,7 @@ model_urls = {
     'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
     'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
 }
-
     
-
 def resnet_backbone(pretrained, name):
     if name == 'resnet50':
         model_baseline = models.resnet50(pretrained=pretrained)
@@ -116,13 +120,28 @@ class ClipBackbone(nn.Module):
         features /= features.norm(p=2, dim=-1, keepdim=True)
         return features
 
+  
+class Dinov2Backbone(nn.Module):
+    def __init__(self):
+        super(Dinov2Backbone, self).__init__()
+        self.model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14')
+        self.preprocess_val = transforms.Compose([
+            transforms.Resize((224,224)),
+            transforms.ToTensor(),
+        ])
+        
+    def forward(self, x):
+        model = self.model
+        features = model(x)
+        features /= features.norm(p=2, dim=-1, keepdim=True)
+        return features
+
+
 class PlipBackbone(nn.Module):
     def __init__(self, without_head: bool = False):
         super(PlipBackbone, self).__init__()
-        backbone = CLIPModel.from_pretrained("vinid/plip")
-        preprocess_val = CLIPProcessor.from_pretrained("vinid/plip")
-        self.model = backbone
-        self.preprocess_val = preprocess_val
+        self.model = CLIPModel.from_pretrained("vinid/plip")
+        self.preprocess_val = CLIPProcessor.from_pretrained("vinid/plip")
 
     def forward(self, x):
         model = self.model
@@ -132,16 +151,19 @@ class PlipBackbone(nn.Module):
         return features
 
 if __name__ == '__main__':
-    # data = torch.randn((1,3,224,224))
-    # device = 'cuda'
-    # data = data.to(device)
-    # backbone = BiomedclipBackbone(device)
-    # backbone.to(device)
-    # # norm_layer = Normalize_module().to(device)
-    # # backbone = nn.Sequential(backbone,norm_layer)
-    # features1 = backbone(data)
-    # features1 /= features1.norm(p=2, dim=-1, keepdim=True)
+    # tmp_i = torch.randn((1,3,224,224)).to('cuda')
+    # model = Dinov2Backbone()
+    # model.to('cuda')
+    # model.eval()
     
-    model = ClipBackbone()
-    model.to('cuda')
-    print(summary(model, (3,224,224)))
+    model = PlipBackbone()
+    tmp_model = nn.Sequential(
+        model.model.vision_model,
+        model.model.visual_projection
+    )
+    print(tmp_model)
+    tmp_model.eval()
+    tmp_model.to('cuda')
+    # print(model(tmp_i).shape)
+    print(summary(tmp_model, (3,224,224)))
+

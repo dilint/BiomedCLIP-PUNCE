@@ -9,7 +9,7 @@ import copy
 import time
 from torch.utils.data import DataLoader, Dataset
 from models.model_adapter import LinearAdapter
-from models.model_backbone import ResnetBackbone, BiomedclipBackbone, ClipBackbone, PlipBackbone
+from models.model_backbone import ResnetBackbone, BiomedclipBackbone, ClipBackbone, PlipBackbone, Dinov2Backbone
 import argparse
 from utils.file_utils import save_hdf5
 from PIL import Image
@@ -103,13 +103,13 @@ def main():
     parser.add_argument('--print_every', type=int, default=20)
     # inference options 
     parser.add_argument('--multi_gpu', action='store_true', default=False)
-    parser.add_argument('--batch_size', type=int, default=16)  
-    parser.add_argument('--num_workers', type=int, default=16)  
+    parser.add_argument('--batch_size', type=int, default=32)  
+    parser.add_argument('--num_workers', type=int, default=64)  
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--world_size', type=int, default=1)
     parser.add_argument('--target_patch_size', type=int, nargs='+', default=(224, 224))
     # model options
-    parser.add_argument('--base_model', default='resnet50', type=str, choices=['biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip'])
+    parser.add_argument('--base_model', default='resnet50', type=str, choices=['biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2'])
     parser.add_argument('--with_adapter', action='store_true')
     parser.add_argument('--ckp_path', type=str, default=None)
     parser.add_argument('--without_head', action='store_true')
@@ -164,26 +164,26 @@ def main():
     torch.cuda.set_device(args.local_rank)
     print('loading model')
     preprocess_val = None
+    input_dim = 512
+    
     if args.base_model == 'resnet50':
         backbone = ResnetBackbone(pretrained=True, name='resnet50')
         input_dim = 1024
     elif args.base_model == 'resnet34':
         backbone = ResnetBackbone(pretrained=True, name='resnet34')
-        input_dim = 512
     elif args.base_model == 'resnet18':
         backbone = ResnetBackbone(pretrained=True, name='resnet18')
-        input_dim = 512
     elif args.base_model == 'biomedclip':
         backbone = BiomedclipBackbone(args.without_head)
-        input_dim = 512
         if args.without_head:
             input_dim = 768
     elif args.base_model == 'clip':
         backbone = ClipBackbone()
-        input_dim = 512
     elif args.base_model == 'plip':
         backbone = PlipBackbone()
-        input_dim = 512
+    elif args.base_model == 'dinov2':
+        backbone = Dinov2Backbone()
+        input_dim = 768
     preprocess_val = backbone.preprocess_val
     
     if args.default_preprocess:
