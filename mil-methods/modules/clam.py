@@ -88,9 +88,9 @@ args:
 
 class CLAM_SB(nn.Module):
     def __init__(self, gate = True, size_arg = "small", dropout = 0., k_sample=8, n_classes=2,
-        instance_loss_fn=SmoothTop1SVM(2), subtyping=False,test=False,act='relu',n_robust=0):
+        instance_loss_fn=SmoothTop1SVM(2), subtyping=False,test=False,act='relu',n_robust=0, input_dim=512):
         super(CLAM_SB, self).__init__()
-        self.size_dict = {"small": [1024, 512, 256], "big": [1024, 512, 384],"hipt": [192, 512, 256]}
+        self.size_dict = {"small": [input_dim, 512, 256], "big": [1024, 512, 384],"hipt": [192, 512, 256]}
         size = self.size_dict[size_arg]
         # fc = [nn.Linear(size[0], size[1]), nn.GELU()]
 

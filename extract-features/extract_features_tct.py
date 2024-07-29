@@ -9,7 +9,7 @@ import copy
 import time
 from torch.utils.data import DataLoader, Dataset
 from models.model_adapter import LinearAdapter
-from models.model_backbone import ResnetBackbone, BiomedclipBackbone, ClipBackbone, PlipBackbone, Dinov2Backbone
+from models.model_backbone import ResnetBackbone, BiomedclipBackbone, ClipBackbone, PlipBackbone, Dinov2Backbone, GigapathBackbone
 import argparse
 from utils.file_utils import save_hdf5
 from PIL import Image
@@ -109,7 +109,7 @@ def main():
     parser.add_argument('--world_size', type=int, default=1)
     parser.add_argument('--target_patch_size', type=int, nargs='+', default=(224, 224))
     # model options
-    parser.add_argument('--base_model', default='resnet50', type=str, choices=['biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2'])
+    parser.add_argument('--base_model', default='resnet50', type=str, choices=['biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2', 'gigapath'])
     parser.add_argument('--with_adapter', action='store_true')
     parser.add_argument('--ckp_path', type=str, default=None)
     parser.add_argument('--without_head', action='store_true')
@@ -184,6 +184,9 @@ def main():
     elif args.base_model == 'dinov2':
         backbone = Dinov2Backbone()
         input_dim = 768
+    elif args.base_model == 'gigapath':
+        backbone = GigapathBackbone()
+        input_dim = 1536
     preprocess_val = backbone.preprocess_val
     
     if args.default_preprocess:

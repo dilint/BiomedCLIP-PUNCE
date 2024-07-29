@@ -2,7 +2,7 @@ import threading
 import os
 import argparse, os
 
-def run_script(mil, args):
+def run_script(mil):
     if mil == 'ab':
         TITLE_NAME=f'{FEATURE_NAME}-abmil-{DATASET}-trainval-{SERVER}'
         os.system(f'CUDA_VISIBLE_DEVICES=0, python3 mil.py --project={PROJECT_NAME} --dataset_root={DATASET_PATH} --label_path={LABEL_PATH} --model_path={OUTPUT_PATH} --datasets={DATASET} --input_dim={NUM_DIM} --cv_fold=1 --title={TITLE_NAME} --model=pure --baseline=attn --train_val --seed=2024 --wandb')
@@ -23,7 +23,7 @@ parser.add_argument('feature_name', default='test', type=str, help='Feature name
 parser.add_argument('--dataset', default='gc', type=str, help='Dataset name')
 parser.add_argument('--num_dim', default=512, type=int, help='number of dimension')
 
-parser.add_argument('--test_mode', action='store_true', help='Test mode')
+parser.add_argument('--test_mode', default=False, type=bool, help='Test mode')
 args = parser.parse_args()
 
 FEATURE_NAME=args.feature_name
@@ -32,13 +32,13 @@ NUM_DIM=args.num_dim
 DATASET_PATH=f'../extract-features/result-final-{DATASET}-features/{FEATURE_NAME}'
 LABEL_PATH=f'../datatools/{DATASET}/labels'
 OUTPUT_PATH='output-model'
-PROJECT_NAME='test'
+PROJECT_NAME='mil-methods-info'
 SERVER=3080
 
 if not args.test_mode:
     # train
-    thread1 = threading.Thread(target=run_script, args=('ab', args))
-    thread2 = threading.Thread(target=run_script, args=('trans', args))
+    thread1 = threading.Thread(target=run_script, args=('ab',))
+    thread2 = threading.Thread(target=run_script, args=('trans',))
     
     # 启动线程
     thread1.start()

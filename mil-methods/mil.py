@@ -222,7 +222,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     # follow the official code
     # ref: https://github.com/mahmoodlab/CLAM
     elif args.model == 'clam_sb':
-        model = clam.CLAM_SB(n_classes=args.n_classes,dropout=args.dropout,act=args.act).to(device)
+        model = clam.CLAM_SB(n_classes=args.n_classes,dropout=args.dropout,act=args.act,input_dim=args.input_dim).to(device)
     elif args.model == 'clam_mb':
         model = clam.CLAM_MB(n_classes=args.n_classes,dropout=args.dropout,act=args.act).to(device)
     elif args.model == 'transmil':
@@ -713,15 +713,15 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MIL Training Script')
 
     # Dataset 
-    parser.add_argument('--datasets', default='camelyon16', type=str, help='[camelyon16, tcga, ngc, gc, fnac]')
-    parser.add_argument('--dataset_root', default='/data/xxx/TCGA', type=str, help='Dataset root path')
-    parser.add_argument('--label_path', default='/root/project/MHIM-MIL/ngc-labels/train_label.csv', type=str, help='label of train dataset')
+    parser.add_argument('--datasets', default='gc', type=str, help='[camelyon16, tcga, ngc, gc, fnac]')
+    parser.add_argument('--dataset_root', default='../extract-features/result-final-gc-features/test', type=str, help='Dataset root path')
+    parser.add_argument('--label_path', default='../datatools/gc/labels', type=str, help='label of train dataset')
     parser.add_argument('--tcga_max_patch', default=-1, type=int, help='Max Number of patch in TCGA [-1]')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
     parser.add_argument('--fix_train_random', action='store_true', help='Fix random seed of Training')
     parser.add_argument('--val_ratio', default=0., type=float, help='Val-set ratio')
     parser.add_argument('--fold_start', default=0, type=int, help='Start validation fold [0]')
-    parser.add_argument('--cv_fold', default=3, type=int, help='Number of cross validation fold [3]')
+    parser.add_argument('--cv_fold', default=1, type=int, help='Number of cross validation fold [3]')
     parser.add_argument('--persistence', action='store_true', help='Load data into memory') 
     parser.add_argument('--same_psize', default=0, type=int, help='Keep the same size of all patches [0]')
     parser.add_argument('--high_weight', default=1.0, type=float, help='the weight loss for high risk wsi of gc dataset')
@@ -738,8 +738,8 @@ if __name__ == '__main__':
     parser.add_argument('--loss', default='ce', type=str, help='Classification Loss [ce, bce]')
     parser.add_argument('--opt', default='adam', type=str, help='Optimizer [adam, adamw]')
     parser.add_argument('--save_best_model_stage', default=0., type=float, help='See DTFD')
-    parser.add_argument('--model', default='mhim', type=str, help='Model name')
-    parser.add_argument('--seed', default=2021, type=int, help='random number [2021]' )
+    parser.add_argument('--model', default='clam_sb', type=str, help='Model name')
+    parser.add_argument('--seed', default=2024, type=int, help='random number [2021]' )
     parser.add_argument('--lr', default=2e-4, type=float, help='Initial learning rate [0.0002]')
     parser.add_argument('--lr_sche', default='cosine', type=str, help='Deacy of learning rate [cosine, step, const]')
     parser.add_argument('--lr_supi', action='store_true', help='LR scheduler update per iter')
@@ -757,7 +757,7 @@ if __name__ == '__main__':
     parser.add_argument('--dropout', default=0.25, type=float, help='Dropout in the projection head')
     parser.add_argument('--n_heads', default=8, type=int, help='Number of head in the MSA')
     parser.add_argument('--da_act', default='relu', type=str, help='Activation func in the DAttention [gelu,relu]')
-    parser.add_argument('--input_dim', default=1024, type=int, help='The dimention of patch feature')
+    parser.add_argument('--input_dim', default=512, type=int, help='The dimention of patch feature')
 
     # Shuffle
     parser.add_argument('--patch_shuffle', action='store_true', help='2-D group shuffle')
@@ -787,7 +787,7 @@ if __name__ == '__main__':
 
     # Misc
     parser.add_argument('--title', default='default', type=str, help='Title of exp')
-    parser.add_argument('--project', default='output-test', type=str, help='Project name of exp')
+    parser.add_argument('--project', default='test', type=str, help='Project name of exp')
     parser.add_argument('--log_iter', default=100, type=int, help='Log Frequency')
     parser.add_argument('--amp', action='store_true', help='Automatic Mixed Precision Training')
     parser.add_argument('--wandb', action='store_true', help='Weight&Bias')

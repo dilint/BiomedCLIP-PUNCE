@@ -2,6 +2,7 @@
 import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
 import torch
+import timm
 import torch.nn.functional as F
 from torchvision import models, transforms
 from torchsummary import summary
@@ -135,6 +136,23 @@ class Dinov2Backbone(nn.Module):
         features = model(x)
         features /= features.norm(p=2, dim=-1, keepdim=True)
         return features
+    
+class GigapathBackbone(nn.Module):
+    def __init__(self):
+        super(GigapathBackbone, self).__init__()
+        self.model = timm.create_model("hf_hub:prov-gigapath/prov-gigapath", pretrained=True)
+        self.preprocess_val = transforms.Compose(
+            [
+                transforms.Resize(256, interpolation=transforms.InterpolationMode.BICUBIC),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+            ]
+        )
+        
+    def forward(self, x):
+        model = self.model
+        return model(x)
 
 
 class PlipBackbone(nn.Module):
