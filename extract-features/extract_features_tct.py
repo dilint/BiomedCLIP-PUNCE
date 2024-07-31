@@ -15,6 +15,7 @@ from utils.file_utils import save_hdf5
 from PIL import Image
 import h5py
 import glob
+from utils.utils import seed_torch
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
@@ -240,7 +241,7 @@ def main():
 
 if __name__ == '__main__':
     time_start = time.time()
-    
+    seed_torch(2024)
     main()
     
     time_end = time.time()

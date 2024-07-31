@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cd ../extract-features
+cd extract-features
 
 FEAT_DIR='gigapath1'
 BASE_MODEL='gigapth'

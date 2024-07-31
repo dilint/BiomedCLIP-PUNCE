@@ -12,8 +12,13 @@ from modules import mean_max
 
 
 def copy_file(args):
-    source, dest = args
-    os.system('cp {} {}'.format(source, dest))
+    _, _, save_feat = args
+    if save_feat:
+        dest, feat, _ = args
+        torch.save(feat, dest)
+    else:
+        source, dest, _ = args
+        os.system('cp {} {}'.format(source, dest))
 
 
 class WsiPathUtil():
@@ -41,10 +46,12 @@ class WsiPathUtil():
             for subdir in os.listdir(data_root):
                 self.wsi_dict[subdir] = os.path.join(data_root, subdir)
 
-    def saveSubimages(self, wsi_name, topk_dices):
+    def saveSubimages(self, wsi_name, topk_dices, bag):
         wsi_path = self.wsi_dict[wsi_name]
         num_k = len(topk_dices)
         patch_files = glob.glob(os.path.join(wsi_path, '*.jpg'))
+        patch_files = sorted(patch_files, key=lambda x: (int(os.path.basename(x).split(".")[0].split("_")[0]), 
+        int(os.path.basename(x).split(".")[0].split("_")[1])))
         processes = []
         # 定义进程数
         process_count = self.num_parallel  # 假设使用4个进程
@@ -55,7 +62,7 @@ class WsiPathUtil():
         dest_wsi_path = os.path.join(self.output_root, 
                                      os.path.relpath(wsi_path, self.wsi_root))
         if os.path.exists(dest_wsi_path):
-            if len(glob.glob(os.path.join(dest_wsi_path, '*.jpg'))) == num_k:
+            if len(glob.glob(os.path.join(dest_wsi_path, '*'))) == num_k:
                 return
             else:
                 os.rmdir(dest_wsi_path)
@@ -65,7 +72,12 @@ class WsiPathUtil():
             source_path = patch_files[dice]
             rel_path = os.path.relpath(source_path, self.wsi_root)
             dest_path = os.path.join(self.output_root, rel_path)
-            args_list.append((source_path, dest_path))
+            save_feat = args.save_feat
+            if save_feat:
+                dest_path = dest_path.replace('.jpg', '.pt')
+                args_list.append((dest_path, bag[dice], save_feat))
+            else:
+                args_list.append((source_path, dest_path, save_feat))
         # 使用进程池并行处理
         pool.map(copy_file, args_list)
         # 关闭进程池
@@ -77,7 +89,6 @@ def topk(tensor, k):
         k = tensor.size()[0]
     values, indices = torch.topk(tensor, k, dim=0, largest=True, sorted=False)
     return indices
-
 
 def main(args):
     # set seed
@@ -139,16 +150,12 @@ def main(args):
             bag = data[0].to(device)
             label = data[1].to(device)
             wsi_name = data[2][0]
-            if model_type in ('mhim','pure'):
-                test_logits = model.forward_test(bag)
-            elif model_type == 'dsmil':
-                test_logits, _ = model(bag)
-            else:
-                test_logits = model(bag)
+            test_logits = model(bag)
             test_logits = test_logits.squeeze()
             test_logits = test_logits.cpu()[:, 1]
+            bag=bag[0].cpu()
             topk_dices = topk(test_logits, topk_num)
-            wsi_util.saveSubimages(wsi_name=wsi_name, topk_dices=topk_dices)
+            wsi_util.saveSubimages(wsi_name=wsi_name, topk_dices=topk_dices, bag=bag)
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Filter high risk patches for ngc')
@@ -173,6 +180,7 @@ if __name__ == '__main__':
     # Output
     parser.add_argument('--output_root', default='/root/commonfile/wsi/output-filter/test-ngc-meanmil/', type=str, help='output path')
     parser.add_argument('--topk_num', default=50, type=int, help='topk_num')
+    parser.add_argument('--save_feat', action='store_true', help='save feature or images')
     # parallel
     parser.add_argument('--num_parallel', default=16, type=int)
     

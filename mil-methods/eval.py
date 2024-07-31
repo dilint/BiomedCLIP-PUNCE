@@ -138,6 +138,8 @@ def test_loop(args,model,loader,device,c_h):
                 test_logits = model.forward_test(bag)
             elif args.model == 'dsmil':
                 test_logits,_ = model(bag)
+            elif args.model in ('clam_sb','clam_mb'):
+                test_logits = model(bag, instance_eval=False)
             else:
                 test_logits = model(bag)
                 
