@@ -12,13 +12,11 @@ from modules import mean_max
 
 
 def copy_file(args):
-    _, _, save_feat = args
+    source, dest, feat, save_feat = args
+    os.system('cp {} {}'.format(source, dest))
     if save_feat:
-        dest, feat, _ = args
+        dest = dest.replace('.jpg', '.pt')
         torch.save(feat, dest)
-    else:
-        source, dest, _ = args
-        os.system('cp {} {}'.format(source, dest))
 
 
 class WsiPathUtil():
@@ -62,7 +60,7 @@ class WsiPathUtil():
         dest_wsi_path = os.path.join(self.output_root, 
                                      os.path.relpath(wsi_path, self.wsi_root))
         if os.path.exists(dest_wsi_path):
-            if len(glob.glob(os.path.join(dest_wsi_path, '*'))) == num_k:
+            if len(glob.glob(os.path.join(dest_wsi_path, '*.jpg'))) == num_k:
                 return
             else:
                 os.rmdir(dest_wsi_path)
@@ -73,11 +71,7 @@ class WsiPathUtil():
             rel_path = os.path.relpath(source_path, self.wsi_root)
             dest_path = os.path.join(self.output_root, rel_path)
             save_feat = args.save_feat
-            if save_feat:
-                dest_path = dest_path.replace('.jpg', '.pt')
-                args_list.append((dest_path, bag[dice], save_feat))
-            else:
-                args_list.append((source_path, dest_path, save_feat))
+            args_list.append((source_path, dest_path, bag[dice], save_feat))
         # 使用进程池并行处理
         pool.map(copy_file, args_list)
         # 关闭进程池
