@@ -16,7 +16,7 @@ def copy_file(args):
     os.system('cp {} {}'.format(source, dest))
     if save_feat:
         dest = dest.replace('.jpg', '.pt')
-        torch.save(feat, dest)
+        torch.save(feat.clone(), dest)
 
 
 class WsiPathUtil():
