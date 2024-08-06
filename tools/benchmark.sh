@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-FEATURE_NAME=biomed1
-NUM_DIM=512
+FEATURE_NAME=gigapath1
+NUM_DIM=1536
 DATASET=gc
 
 SEED=2024 # 2024 2025 2026

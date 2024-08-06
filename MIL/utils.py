@@ -146,6 +146,8 @@ def multi_class_scores(bag_labels, bag_logits):
     bag_logits = np.array(bag_logits)
     bag_pred = np.argmax(bag_logits, axis=-1)
     accuracy = accuracy_score(bag_labels, bag_pred)
+    recall = recall_score(bag_labels, bag_pred, average=None)
+    print(recall)
     recall = recall_score(bag_labels, bag_pred, average='macro')
     precision = precision_score(bag_labels, bag_pred, average='macro')
     fscore = f1_score(bag_labels, bag_pred, average='macro')
