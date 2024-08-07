@@ -53,7 +53,8 @@ if __name__ == '__main__':
     img_root = '/home1/wsi/gc-224'
     feature_root = '/home1/wsi/gc-all-features/frozen/gigapath1'
     output_root = '/home1/wsi/gc-all-features/frozen/gigapath-longnet'
-    
+    if not os.path.exists(output_root):
+            os.makedirs(output_root)
     wsi_names = []
     with open(label_path, 'r') as file:
         lines = file.readlines()
@@ -74,7 +75,7 @@ if __name__ == '__main__':
         with torch.cuda.amp.autocast(dtype=torch.float16):
             slide_embeds = slide_encoder(tile_embeds.cuda(), coords.cuda(), all_layer_embed=True)
         outputs = {"layer_{}_embed".format(i): slide_embeds[i].cpu() for i in range(len(slide_embeds))}
-        outputs_feat = slide_embeds[-1].cpu()
+        outputs_feat = slide_embeds[11].detach().cpu().squeeze()
         output_dir = os.path.join(output_root, f'{wsi_name}.pt')
         torch.save(outputs_feat, output_dir)
     

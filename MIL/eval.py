@@ -1,5 +1,4 @@
 import torch
-from timm.utils import AverageMeter,dispatch_clip_grad
 from utils import *
 import argparse, os
 from torch.utils.data import DataLoader, RandomSampler
@@ -78,7 +77,7 @@ def main(args):
     # follow the official code
     # ref: https://github.com/mahmoodlab/CLAM
     elif args.model == 'clam_sb':
-        model = clam.CLAM_SB(n_classes=args.n_classes,dropout=args.dropout,act=args.act).to(device)
+        model = clam.CLAM_SB(n_classes=args.n_classes,dropout=args.dropout,act=args.act,input_dim=args.input_dim).to(device)
     elif args.model == 'clam_mb':
         model = clam.CLAM_MB(n_classes=args.n_classes,dropout=args.dropout,act=args.act).to(device)
     elif args.model == 'transmil':

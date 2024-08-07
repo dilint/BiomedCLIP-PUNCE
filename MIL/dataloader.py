@@ -220,7 +220,9 @@ class GcDataset(C16Dataset):
         if self.persistence:
             features = self.feats[idx]
         else:
-            dir_path = os.path.join(self.root,"pt")
+            dir_path = self.root
+            if "pt" in os.listdir(self.root):
+                dir_path = os.path.join(self.root,"pt")
             file_path = os.path.join(dir_path, self.file_name[idx]+'.pt')
             features = torch.load(file_path)
         label = int(self.slide_label[idx])

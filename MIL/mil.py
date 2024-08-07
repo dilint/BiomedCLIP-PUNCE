@@ -7,7 +7,7 @@ import torch.nn as nn
 from dataloader import *
 from torch.utils.data import DataLoader, RandomSampler
 import argparse, os
-from modules import attmil,clam,mhim,dsmil,transmil,mean_max
+from modules import attmil,clam,mhim,dsmil,transmil,mean_max,linear
 from torch.nn.functional import one_hot
 from torch.cuda.amp import GradScaler
 from contextlib import suppress
@@ -239,6 +239,8 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         model = mean_max.MeanMIL(n_classes=args.n_classes,dropout=args.dropout,act=args.act,input_dim=args.input_dim).to(device)
     elif args.model == 'maxmil':
         model = mean_max.MaxMIL(n_classes=args.n_classes,dropout=args.dropout,act=args.act,input_dim=args.input_dim).to(device)
+    elif args.model == 'linear':
+        model = linear.LinearHead(n_classes=args.n_classes,feat_dim=args.input_dim).to(device)
 
     if args.init_stu_type != 'none':
         if not args.no_log:
@@ -672,7 +674,7 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,model_tea=N
                 test_logits = model(bag, instance_eval=False)
             else:
                 test_logits = model(bag)
-
+            
             if args.loss == 'ce':
                 if (args.model == 'dsmil' and args.ds_average) or (args.model == 'mhim' and isinstance(test_logits,(list,tuple))):
                     test_loss = criterion(test_logits[0].view(batch_size,-1),label)
@@ -716,8 +718,8 @@ if __name__ == '__main__':
 
     # Dataset 
     parser.add_argument('--datasets', default='gc', type=str, help='[camelyon16, tcga, ngc, gc, fnac]')
-    parser.add_argument('--dataset_root', default='../extract-features/result-final-gc-features/test', type=str, help='Dataset root path')
-    parser.add_argument('--label_path', default='../datatools/gc/labels', type=str, help='label of train dataset')
+    parser.add_argument('--dataset_root', default='/home1/wsi/gc-all-features/frozen/gigapath-longnet', type=str, help='Dataset root path')
+    parser.add_argument('--label_path', default='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc/n-labels', type=str, help='label of train dataset')
     parser.add_argument('--tcga_max_patch', default=-1, type=int, help='Max Number of patch in TCGA [-1]')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
     parser.add_argument('--fix_train_random', action='store_true', help='Fix random seed of Training')
@@ -727,7 +729,7 @@ if __name__ == '__main__':
     parser.add_argument('--persistence', action='store_true', help='Load data into memory') 
     parser.add_argument('--same_psize', default=0, type=int, help='Keep the same size of all patches [0]')
     parser.add_argument('--high_weight', default=1.0, type=float, help='the weight loss for high risk wsi of gc dataset')
-    parser.add_argument('--train_val', action='store_true', help='use train and val set to train the model')
+    parser.add_argument('--train_val', default=True, action='store_true', help='use train and val set to train the model')
 
     # Train
     parser.add_argument('--cls_alpha', default=1.0, type=float, help='Main loss alpha')
@@ -735,12 +737,12 @@ if __name__ == '__main__':
     parser.add_argument('--num_epoch', default=200, type=int, help='Number of total training epochs [200]')
     parser.add_argument('--early_stopping', action='store_false', help='Early stopping')
     parser.add_argument('--max_epoch', default=130, type=int, help='Number of max training epochs in the earlystopping [130]')
-    parser.add_argument('--n_classes', default=2, type=int, help='Number of classes')
+    parser.add_argument('--n_classes', default=5, type=int, help='Number of classes')
     parser.add_argument('--batch_size', default=1, type=int, help='Number of batch size')
     parser.add_argument('--loss', default='ce', type=str, help='Classification Loss [ce, bce]')
     parser.add_argument('--opt', default='adam', type=str, help='Optimizer [adam, adamw]')
     parser.add_argument('--save_best_model_stage', default=0., type=float, help='See DTFD')
-    parser.add_argument('--model', default='clam_sb', type=str, help='Model name')
+    parser.add_argument('--model', default='linear', type=str, help='Model name')
     parser.add_argument('--seed', default=2024, type=int, help='random number [2021]' )
     parser.add_argument('--lr', default=2e-4, type=float, help='Initial learning rate [0.0002]')
     parser.add_argument('--lr_sche', default='cosine', type=str, help='Deacy of learning rate [cosine, step, const]')
@@ -759,7 +761,7 @@ if __name__ == '__main__':
     parser.add_argument('--dropout', default=0.25, type=float, help='Dropout in the projection head')
     parser.add_argument('--n_heads', default=8, type=int, help='Number of head in the MSA')
     parser.add_argument('--da_act', default='relu', type=str, help='Activation func in the DAttention [gelu,relu]')
-    parser.add_argument('--input_dim', default=512, type=int, help='The dimention of patch feature')
+    parser.add_argument('--input_dim', default=768, type=int, help='The dimention of patch feature')
 
     # Shuffle
     parser.add_argument('--patch_shuffle', action='store_true', help='2-D group shuffle')

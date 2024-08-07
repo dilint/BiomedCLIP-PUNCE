@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-FEATURE_NAME=gigapath1
-NUM_DIM=1536
+FEATURE_NAME=gigapath-longnet
+NUM_DIM=768
 DATASET=gc
 
 SEED=2024 # 2024 2025 2026
