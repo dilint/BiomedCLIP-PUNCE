@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torchvision import models, transforms
 from torchsummary import summary
 import open_clip
-from transformers import CLIPModel, CLIPProcessor
+from transformers import CLIPModel, CLIPProcessor, ViTMAEModel
 
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
@@ -166,6 +166,17 @@ class PlipBackbone(nn.Module):
         features = model.vision_model(x)[1]
         features = model.visual_projection(features)
         features /= features.norm(p=2, dim=-1, keepdim=True)
+        return features
+
+
+class MaeBackbone(nn.Module):
+    def __init__(self):
+        super(MaeBackbone, self).__init__()
+        self.model = ViTMAEModel.from_pretrained("facebook/vit-mae-base")
+
+    def forward(self, x):
+        model = self.model
+        features = torch.mean(model(x).last_hidden_state, dim=1)
         return features
 
 if __name__ == '__main__':

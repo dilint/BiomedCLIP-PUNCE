@@ -9,7 +9,7 @@ import copy
 import time
 from torch.utils.data import DataLoader, Dataset
 from models.model_adapter import LinearAdapter
-from models.model_backbone import ResnetBackbone, BiomedclipBackbone, ClipBackbone, PlipBackbone, Dinov2Backbone, GigapathBackbone
+from models.model_backbone import ResnetBackbone, BiomedclipBackbone, ClipBackbone, PlipBackbone, Dinov2Backbone, GigapathBackbone, MaeBackbone
 import argparse
 from utils.file_utils import save_hdf5
 from PIL import Image
@@ -98,8 +98,8 @@ def main():
     parser = argparse.ArgumentParser(description='NGC dataset Feature Extraction')
     parser.add_argument('--dataset', type=str, default='gc', choices=['ngc', 'ubc', 'gc', 'fnac'])
     parser.add_argument('--wsi_root', type=str, default='/home1/wsi/gc-224')
-    parser.add_argument('--output_path', type=str, default='result-final-gc-features')
-    parser.add_argument('--feat_dir', type=str, default='resnet-ori-test')
+    parser.add_argument('--output_path', type=str, default='/home1/wsi/gc-all-features/frozen')
+    parser.add_argument('--feat_dir', type=str, default='mae1')
     parser.add_argument('--verbose', type=int, default=0)
     parser.add_argument('--print_every', type=int, default=20)
     # inference options 
@@ -110,7 +110,7 @@ def main():
     parser.add_argument('--world_size', type=int, default=1)
     parser.add_argument('--target_patch_size', type=int, nargs='+', default=(224, 224))
     # model options
-    parser.add_argument('--base_model', default='resnet50', type=str, choices=['biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2', 'gigapath'])
+    parser.add_argument('--base_model', default='resnet50', type=str, choices=['biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2', 'gigapath', 'mae'])
     parser.add_argument('--with_adapter', action='store_true')
     parser.add_argument('--ckp_path', type=str, default=None)
     parser.add_argument('--without_head', action='store_true')
@@ -188,6 +188,9 @@ def main():
     elif args.base_model == 'gigapath':
         backbone = GigapathBackbone()
         input_dim = 1536
+    elif args.base_model == 'mae':
+        backbone = MaeBackbone()
+        input_dim = 768
     preprocess_val = backbone.preprocess_val
     
     if args.default_preprocess:
