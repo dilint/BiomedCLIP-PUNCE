@@ -173,7 +173,8 @@ class MaeBackbone(nn.Module):
     def __init__(self):
         super(MaeBackbone, self).__init__()
         self.model = ViTMAEModel.from_pretrained("facebook/vit-mae-base")
-
+        self.preprocess_val = None
+        
     def forward(self, x):
         model = self.model
         features = torch.mean(model(x).last_hidden_state, dim=1)

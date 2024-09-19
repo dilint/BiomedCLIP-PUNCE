@@ -537,6 +537,11 @@ def train_loop(args,model,model_tea,loader,optimizer,device,amp_autocast,criteri
     mm_meter = AverageMeter()
     train_loss_log = 0.
     model.train()
+    
+    n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    num_total_param = sum(p.numel() for p in model.parameters())
+    print('Number of total parameters: {}, tunable parameters: {}'.format(num_total_param, n_parameters))\
+    
     if model_tea is not None:
         model_tea.train()
 
@@ -718,8 +723,8 @@ if __name__ == '__main__':
 
     # Dataset 
     parser.add_argument('--datasets', default='gc', type=str, help='[camelyon16, tcga, ngc, gc, fnac]')
-    parser.add_argument('--dataset_root', default='/home1/wsi/gc-all-features/frozen/gigapath-longnet', type=str, help='Dataset root path')
-    parser.add_argument('--label_path', default='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc/n-labels', type=str, help='label of train dataset')
+    parser.add_argument('--dataset_root', default='/home1/wsi/gc-all-features/frozen/plip1', type=str, help='Dataset root path')
+    parser.add_argument('--label_path', default='../datatools/gc/labels', type=str, help='label of train dataset')
     parser.add_argument('--tcga_max_patch', default=-1, type=int, help='Max Number of patch in TCGA [-1]')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
     parser.add_argument('--fix_train_random', action='store_true', help='Fix random seed of Training')
@@ -737,12 +742,12 @@ if __name__ == '__main__':
     parser.add_argument('--num_epoch', default=200, type=int, help='Number of total training epochs [200]')
     parser.add_argument('--early_stopping', action='store_false', help='Early stopping')
     parser.add_argument('--max_epoch', default=130, type=int, help='Number of max training epochs in the earlystopping [130]')
-    parser.add_argument('--n_classes', default=5, type=int, help='Number of classes')
+    parser.add_argument('--n_classes', default=2, type=int, help='Number of classes')
     parser.add_argument('--batch_size', default=1, type=int, help='Number of batch size')
     parser.add_argument('--loss', default='ce', type=str, help='Classification Loss [ce, bce]')
     parser.add_argument('--opt', default='adam', type=str, help='Optimizer [adam, adamw]')
     parser.add_argument('--save_best_model_stage', default=0., type=float, help='See DTFD')
-    parser.add_argument('--model', default='linear', type=str, help='Model name')
+    parser.add_argument('--model', default='pure', type=str, help='Model name')
     parser.add_argument('--seed', default=2024, type=int, help='random number [2021]' )
     parser.add_argument('--lr', default=2e-4, type=float, help='Initial learning rate [0.0002]')
     parser.add_argument('--lr_sche', default='cosine', type=str, help='Deacy of learning rate [cosine, step, const]')
@@ -756,12 +761,12 @@ if __name__ == '__main__':
     # Other models
     parser.add_argument('--ds_average', action='store_true', help='DSMIL hyperparameter')
     # Our
-    parser.add_argument('--baseline', default='selfattn', type=str, help='Baselin model [attn,selfattn]')
+    parser.add_argument('--baseline', default='attn', type=str, help='Baselin model [attn,selfattn]')
     parser.add_argument('--act', default='relu', type=str, help='Activation func in the projection head [gelu,relu]')
     parser.add_argument('--dropout', default=0.25, type=float, help='Dropout in the projection head')
     parser.add_argument('--n_heads', default=8, type=int, help='Number of head in the MSA')
     parser.add_argument('--da_act', default='relu', type=str, help='Activation func in the DAttention [gelu,relu]')
-    parser.add_argument('--input_dim', default=768, type=int, help='The dimention of patch feature')
+    parser.add_argument('--input_dim', default=512, type=int, help='The dimention of patch feature')
 
     # Shuffle
     parser.add_argument('--patch_shuffle', action='store_true', help='2-D group shuffle')
@@ -790,7 +795,7 @@ if __name__ == '__main__':
     parser.add_argument('--mm_sche', action='store_true', help='Cosine schedule of ema decay')
 
     # Misc
-    parser.add_argument('--title', default='default', type=str, help='Title of exp')
+    parser.add_argument('--title', default='test', type=str, help='Title of exp')
     parser.add_argument('--project', default='test', type=str, help='Project name of exp')
     parser.add_argument('--log_iter', default=100, type=int, help='Log Frequency')
     parser.add_argument('--amp', action='store_true', help='Automatic Mixed Precision Training')

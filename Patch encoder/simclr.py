@@ -376,6 +376,11 @@ def train(args) -> None:
 
     # SimCLR training
     model.train()
+    
+    n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    num_total_param = sum(p.numel() for p in model.parameters())
+    print('Number of total parameters: {}, tunable parameters: {}'.format(num_total_param, n_parameters))
+    
     for epoch in range(epoch_start, args.epochs + 1):
         # train_loader.sampler.set_epoch(epoch)
         loss_meter = AverageMeter("SimCLR_loss")
@@ -434,14 +439,14 @@ if __name__ == '__main__':
     
     parser.add_argument('--auto_resume', action='store_true', help='automatically resume training')
     # dataset
-    parser.add_argument('--dataset', type=str, default='ngc', choices=['cifar10', 'ngc', 'gc', 'fnac'])
+    parser.add_argument('--dataset', type=str, default='gc', choices=['cifar10', 'ngc', 'gc', 'fnac'])
     parser.add_argument('--load_cpu', action='store_true')
-    parser.add_argument('--data_dir', type=str, default='/home1/wsi/ngc-output-filter/meanmil')
-    parser.add_argument('--train_label_path', type=str, default='datatools/ngc-2023/ngc_labels/train_label.csv')
+    parser.add_argument('--data_dir', type=str, default='/home1/wsi/gc-filter/filter-images/plip1-meanmil-50')
+    parser.add_argument('--train_label_path', type=str, default='../datatools/gc/labels/train_label.csv')
     # parser.add_argument('--target_patch_size', type=int, nargs='+', default=(1333, 800))
     
     # model
-    parser.add_argument('--backbone', type=str, default='resnet50', choices=['resnet50', 'biomedclip', 'resnet18', 'resnet34', 'plip', 'clip'])
+    parser.add_argument('--backbone', type=str, default='biomedclip', choices=['resnet50', 'biomedclip', 'resnet18', 'resnet34', 'plip', 'clip'])
     parser.add_argument('--without_head', action='store_true')
     parser.add_argument('--not_frozen', action='store_true')
     # parser.add_argument('--proj_hidden_dim', default=128, type=int, help='dimension of projected features')
@@ -464,8 +469,8 @@ if __name__ == '__main__':
     
     # wandb
     parser.add_argument('--wandb', action='store_true', help='Weight&Bias')
-    parser.add_argument('--project', default='simclr-puc', type=str)
-    parser.add_argument('--title', default='resnet50-simclr-test', type=str)
+    parser.add_argument('--project', default='simclr-infonce', type=str)
+    parser.add_argument('--title', default='test', type=str)
     parser.add_argument('--model_path', default='output-model', type=str)
     parser.add_argument('--ckp_path', type=str)
     # ddp

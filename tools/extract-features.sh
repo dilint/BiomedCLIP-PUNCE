@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-cd extract-features
+cd 'Patch encoder'
 
-FEAT_DIR='gigapath1'
-BASE_MODEL='gigapth'
+FEAT_DIR='mae1' # gigapath1
+BASE_MODEL='mae' # 'biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2', 'gigapath', 'mae'
 
 GPU_NUMBERS=4
 WSI_ROOT='/home1/wsi/gc-224'

@@ -110,7 +110,7 @@ def main():
     parser.add_argument('--world_size', type=int, default=1)
     parser.add_argument('--target_patch_size', type=int, nargs='+', default=(224, 224))
     # model options
-    parser.add_argument('--base_model', default='resnet50', type=str, choices=['biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2', 'gigapath', 'mae'])
+    parser.add_argument('--base_model', default='mae', type=str, choices=['biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2', 'gigapath', 'mae'])
     parser.add_argument('--with_adapter', action='store_true')
     parser.add_argument('--ckp_path', type=str, default=None)
     parser.add_argument('--without_head', action='store_true')
