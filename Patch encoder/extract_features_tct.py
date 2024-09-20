@@ -4,6 +4,7 @@ from math import floor
 from PIL import Image
 import open_clip
 from torchvision import transforms
+import torch.utils.benchmark as benchmark
 import os
 import copy
 import time
@@ -99,7 +100,7 @@ def main():
     parser.add_argument('--dataset', type=str, default='gc', choices=['ngc', 'ubc', 'gc', 'fnac'])
     parser.add_argument('--wsi_root', type=str, default='/home1/wsi/gc-224')
     parser.add_argument('--output_path', type=str, default='/home1/wsi/gc-all-features/frozen')
-    parser.add_argument('--feat_dir', type=str, default='mae1')
+    parser.add_argument('--feat_dir', type=str, default='test')
     parser.add_argument('--verbose', type=int, default=0)
     parser.add_argument('--print_every', type=int, default=20)
     # inference options 
@@ -110,9 +111,9 @@ def main():
     parser.add_argument('--world_size', type=int, default=1)
     parser.add_argument('--target_patch_size', type=int, nargs='+', default=(224, 224))
     # model options
-    parser.add_argument('--base_model', default='mae', type=str, choices=['biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2', 'gigapath', 'mae'])
-    parser.add_argument('--with_adapter', action='store_true')
-    parser.add_argument('--ckp_path', type=str, default=None)
+    parser.add_argument('--base_model', default='biomedclip', type=str, choices=['biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2', 'gigapath', 'mae'])
+    parser.add_argument('--with_adapter', default=True, action='store_true')
+    parser.add_argument('--ckp_path', type=str, default='/home/huangjialong/projects/BiomedCLIP-PUNCE/Patch encoder/output-model/simclr-infonce/plip_simclr_infonce_filterGC_50_224_4*256_200/plip_simclr_infonce_filterGC_50_224_4*256_200_epoch200.pt')
     parser.add_argument('--without_head', action='store_true')
     parser.add_argument('--default_preprocess', action='store_true')
     args = parser.parse_args()
@@ -211,6 +212,29 @@ def main():
     model.eval()
     total = len(wsi_dirs)    
 
+    # 准备一批数据
+    batch_size = 1
+    input_data = torch.randn(batch_size, 3, 224, 224)
+    input_data = input_data.to(device)
+
+    # 预热
+    with torch.no_grad():
+        for _ in range(10):
+            _ = model(input_data)
+
+    # 测量时间
+    start_time = time.time()
+    with torch.no_grad():
+        for _ in range(100):  # 进行100次前向传播
+            _ = model(input_data)
+    end_time = time.time()
+
+    # 计算FPS
+    elapsed_time = end_time - start_time
+    fps = (100 * batch_size) / elapsed_time
+    print(f"{args.base_model}: 模型每秒处理 {fps} 个样本, 经过了{elapsed_time}秒")
+    return
+    
     for idx in range(total):
         if idx % args.world_size != args.local_rank:
             continue
@@ -252,3 +276,4 @@ if __name__ == '__main__':
     print('\n The program took {} h {} min {} s'.format(time_elapesd//3600,
                                                     time_elapesd%3600//60,
                                                     time_elapesd%60))
+    

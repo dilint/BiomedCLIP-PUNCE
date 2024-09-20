@@ -15,6 +15,7 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision.datasets import CIFAR10
 from torchvision.models import resnet18, resnet34
 from torchvision import transforms
+from torchinfo import summary
 
 from models.model_simclr import SimCLR, SimCLR_custome
 from models.model_backbone import ResnetBackbone, BiomedclipBackbone, ClipBackbone, PlipBackbone
@@ -380,6 +381,8 @@ def train(args) -> None:
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     num_total_param = sum(p.numel() for p in model.parameters())
     print('Number of total parameters: {}, tunable parameters: {}'.format(num_total_param, n_parameters))
+    
+    # print(summary(model, input_size=(128, 3, 224, 224)))
     
     for epoch in range(epoch_start, args.epochs + 1):
         # train_loader.sampler.set_epoch(epoch)
