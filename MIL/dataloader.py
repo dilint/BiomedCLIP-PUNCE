@@ -197,7 +197,7 @@ class C16Dataset(Dataset):
             features = torch.load(file_path)
 
         label = int(self.slide_label[idx])
-        return features , label, file_path
+        return features, label, file_path
     
 class GcDataset(C16Dataset):
     def __init__(self, file_name, file_label,root,persistence,keep_same_psize,high_weight,is_train=False):

@@ -1,0 +1,64 @@
+import torch
+from torch import nn
+
+from modules.abmil import *
+from modules.transmil import *
+
+def initialize_weights(module):
+    for m in module.modules():
+        if isinstance(m,nn.Linear):
+            nn.init.xavier_normal_(m.weight)
+            if m.bias is not None:
+                m.bias.data.zero_()
+        elif isinstance(m,nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
+
+class MIL(nn.Module):
+    def __init__(self, input_dim=1024, mlp_dim=512,n_classes=2,mil='abmil',dropout=0.25,head=8,act='gelu'):
+        super(MIL, self).__init__()
+        self.patch_to_emb = [nn.Linear(input_dim, 512)]
+        
+        if act.lower() == 'relu':
+            self.patch_to_emb += [nn.ReLU()]
+        elif act.lower() == 'gelu':
+            self.patch_to_emb += [nn.GELU()]
+
+        self.dp = nn.Dropout(dropout) if dropout > 0. else nn.Identity()
+
+        self.patch_to_emb = nn.Sequential(*self.patch_to_emb)
+
+        if mil == 'transmil':
+            self.online_encoder = Transmil(input_dim=mlp_dim,head=head)
+        elif mil == 'abmil':
+            self.online_encoder = Abmil(input_dim=mlp_dim,act=act)
+        else:
+            raise ValueError(f'MIL type "{mil}" not supported')
+
+        self.predictor = nn.Linear(mlp_dim,n_classes)
+
+    def forward(self, x, return_attn=False):
+        x = self.patch_to_emb(x)
+        x = self.dp(x)
+        # ps = x.size(1)
+
+        if return_attn:
+            x,attn = self.online_encoder(x,return_attn=True)
+        else:
+            x = self.online_encoder(x)
+
+        x = self.predictor(x)
+
+        if return_attn:
+            return x,attn
+        else:
+            return x
+        
+if __name__ == '__main__':
+    b, n, c = 1, 5, 512
+    device = 'cuda'
+    data = torch.randn((b, n, c)).to(device)
+    model = MIL(input_dim=512).to(device)
+    output = model(data)
+    print(output.shape)
+ 

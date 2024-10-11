@@ -5,11 +5,10 @@ import numpy as np
 from copy import deepcopy
 import torch.nn as nn
 from dataloader import *
+from model import *
 from torch.utils.data import DataLoader, RandomSampler
 import argparse, os
-from modules import attmil,clam,mhim,dsmil,transmil,mean_max,linear
 from torch.nn.functional import one_hot
-from torch.cuda.amp import GradScaler
 from contextlib import suppress
 import time
 
@@ -33,32 +32,24 @@ def main(args):
     # --->get dataset
     elif args.datasets.lower() == 'ngc' or 'gc' or 'fnac':
         train_p, train_l, test_p, test_l, val_p, val_l = [], [], [], [], [], []
-        with open(args.train_label_path, 'r') as file:
-            lines = file.readlines()
-            for line in lines:
-                train_p.append(line.split(',')[0])
-                train_l.append(line.split(',')[1])
-        train_p = [np.array(train_p)]
-        train_l = [np.array(train_l)]
-        with open(args.val_label_path, 'r') as file:
-            lines = file.readlines()
-            for line in lines:
-                val_p.append(line.split(',')[0])
-                val_l.append(line.split(',')[1])
-        val_p = [np.array(val_p)]
-        val_l = [np.array(val_l)]
-        with open(args.test_label_path, 'r') as file:
-            lines = file.readlines()
-            for line in lines:
-                test_p.append(line.split(',')[0])
-                test_l.append(line.split(',')[1])
-        test_p = [np.array(test_p)]
-        test_l = [np.array(test_l)]
+        train_ps, train_ls = [], []
+        label_paths = [args.train_label_path, args.val_label_path, args.test_label_path]
+        for label_path in label_paths:
+            with open(label_path, 'r') as file:
+                p, l = [], []               
+                for line in file.readlines():
+                    p.append(line.split(',')[0])
+                    l.append(line.split(',')[1])
+            p, l = [np.array(p)], [np.array(l)]
+            train_ps.append(p)
+            train_ls.append(l)
+        train_p, val_p, test_p = train_ps
+        train_l, val_l, test_l = train_ls
 
     if args.cv_fold > 1:
-        train_p, train_l, test_p, test_l,val_p,val_l = get_kflod(args.cv_fold, p, l,args.val_ratio)
+        train_p, train_l, test_p, test_l, val_p, val_l = get_kflod(args.cv_fold, p, l,args.val_ratio)
     
-    acs, pre, rec,fs,auc,te_auc,te_fs=[],[],[],[],[],[],[]
+    acs, pre, rec,fs,auc, te_auc, te_fs=[],[],[],[],[],[],[]
     ckc_metric = [acs, pre, rec, fs, auc, te_auc, te_fs]
 
     if not args.no_log:
@@ -69,9 +60,9 @@ def main(args):
         ckp = torch.load(os.path.join(args.model_path,'ckp.pt'))
         args.fold_start = ckp['k']
         if len(ckp['ckc_metric']) == 6:
-            acs, pre, rec,fs,auc,te_auc = ckp['ckc_metric']
+            acs, pre, rec, fs, auc, te_auc = ckp['ckc_metric']
         elif len(ckp['ckc_metric']) == 7:
-            acs, pre, rec,fs,auc,te_auc,te_fs = ckp['ckc_metric']
+            acs, pre, rec, fs, auc, te_auc, te_fs = ckp['ckc_metric']
         else:
             acs, pre, rec,fs,auc = ckp['ckc_metric']
     
@@ -109,6 +100,7 @@ def main(args):
         print('Cross validation recall mean: %.3f, std %.3f ' % (np.mean(np.array(rec)), np.std(np.array(rec))))
         print('Cross validation fscore mean: %.3f, std %.3f ' % (np.mean(np.array(fs)), np.std(np.array(fs))))
 
+
 def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     # --->initiation
     seed_torch(args.seed)
@@ -117,28 +109,14 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     acs,pre,rec,fs,auc,te_auc,te_fs = ckc_metric
 
     # --->load data
+    train_set = C16Dataset(train_p[k],train_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,is_train=True)
+    test_set = C16Dataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
+    val_set = C16Dataset(val_p[k],val_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
+        
     if args.datasets.lower() == 'camelyon16':
-
-        train_set = C16Dataset(train_p[k],train_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,is_train=True)
-        test_set = C16Dataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
-        if args.val_ratio != 0.:
-            val_set = C16Dataset(val_p[k],val_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
-        else:
+        if args.val_ratio == 0.:
             val_set = test_set
             
-    # the split of ngc has been done 
-    elif args.datasets.lower() == 'ngc' or 'fnac':
-
-        train_set = C16Dataset(train_p[k],train_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,is_train=True)
-        test_set = C16Dataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
-        val_set = C16Dataset(val_p[k],val_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
-
-    elif args.datasets.lower() == 'gc':
-        
-        train_set = GcDataset(train_p[k],train_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,high_weight=args.high_weight,is_train=True)
-        test_set = GcDataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,high_weight=args.high_weight)
-        val_set = GcDataset(val_p[k],val_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,high_weight=args.high_weight)
-    
     if args.fix_loader_random:
         # generated by int(torch.empty((), dtype=torch.int64).random_().item())
         big_seed_list = 7784414403328510413
@@ -151,22 +129,14 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
     test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
 
+    # model
+    model = MIL(input_dim=args.input_dim, 
+                n_classes=args.n_classes, 
+                mil=args.mil_method,
+                dropout=args.dropout, 
+                act=args.act).to(device)
 
-    if args.model == 'attmil':
-        model = attmil.DAttention(n_classes=args.n_classes,dropout=args.dropout,act=args.act).to(device)
-    elif args.model == 'gattmil':
-        model = attmil.AttentionGated(dropout=args.dropout).to(device)
-    # follow the official code
-    # ref: https://github.com/mahmoodlab/CLAM
-    elif args.model == 'transmil':
-        model = transmil.TransMIL(n_classes=args.n_classes,dropout=args.dropout,act=args.act).to(device)
-    elif args.model == 'meanmil':
-        model = mean_max.MeanMIL(n_classes=args.n_classes,dropout=args.dropout,act=args.act,input_dim=args.input_dim).to(device)
-    elif args.model == 'maxmil':
-        model = mean_max.MaxMIL(n_classes=args.n_classes,dropout=args.dropout,act=args.act,input_dim=args.input_dim).to(device)
-    elif args.model == 'linear':
-        model = linear.LinearHead(n_classes=args.n_classes,feat_dim=args.input_dim).to(device)
-
+    # criterion
     if args.loss == 'bce':
         criterion = nn.BCEWithLogitsLoss()
     elif args.loss == 'ce':
@@ -220,7 +190,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     for epoch in range(epoch_start, args.num_epoch):
         train_loss,start,end = train_loop(args,model,train_loader,optimizer,device,amp_autocast,criterion,scheduler,k,epoch)
         train_time_meter.update(end-start)
-        stop,accuracy, auc_value, precision, recall, fscore, test_loss = val_loop(args,model,val_loader,device,criterion,early_stopping,epoch)
+        stop, accuracy, auc_value, precision, recall, fscore, test_loss = val_loop(args,model,val_loader,device,criterion,early_stopping,epoch)
 
         if not args.no_log:
             print('\r Epoch [%d/%d] train loss: %.1E, test loss: %.1E, accuracy: %.3f, auc_value:%.3f, precision: %.3f, recall: %.3f, fscore: %.3f , time: %.3f(%.3f)' % 
@@ -397,10 +367,10 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
     with torch.no_grad():
         for i, data in enumerate(loader):
             
-            bag=data[0].to(device)  # b*n*1024
+            bag, label = data[0].to(device), data[1].to(device)  # b*n*1024
+            bag_labels.append(data[1].item())
             batch_size=bag.size(0)
 
-            label=data[1].to(device)
             test_logits = model(bag)
             
             if args.loss == 'ce':
@@ -448,11 +418,9 @@ if __name__ == '__main__':
     parser.add_argument('--cv_fold', default=1, type=int, help='Number of cross validation fold [3]')
     parser.add_argument('--persistence', action='store_true', help='Load data into memory') 
     parser.add_argument('--same_psize', default=0, type=int, help='Keep the same size of all patches [0]')
-    parser.add_argument('--high_weight', default=1.0, type=float, help='the weight loss for high risk wsi of gc dataset')
     parser.add_argument('--train_val', default=True, action='store_true', help='use train and val set to train the model')
 
     # Train
-    parser.add_argument('--model', default='attmil', type=str, help='Model name [attmil, gattmil, transmil, linear]')
     parser.add_argument('--cls_alpha', default=1.0, type=float, help='Main loss alpha')
     parser.add_argument('--auto_resume', action='store_true', help='Resume from the auto-saved checkpoint')
     parser.add_argument('--num_epoch', default=200, type=int, help='Number of total training epochs [200]')
@@ -475,8 +443,8 @@ if __name__ == '__main__':
     # Model
     # Other models
     parser.add_argument('--ds_average', action='store_true', help='DSMIL hyperparameter')
-    # Our
-    parser.add_argument('--baseline', default='attn', type=str, help='Baselin model [attn,selfattn]')
+    # mil meathod
+    parser.add_argument('--mil_method', default='abmil', type=str, help='Model name [abmil, transmil, dsmil, clam]')
     parser.add_argument('--act', default='relu', type=str, help='Activation func in the projection head [gelu,relu]')
     parser.add_argument('--dropout', default=0.25, type=float, help='Dropout in the projection head')
     parser.add_argument('--n_heads', default=8, type=int, help='Number of head in the MSA')
@@ -514,13 +482,8 @@ if __name__ == '__main__':
     if not os.path.exists(args.model_path):
         os.mkdir(args.model_path)
 
-    if args.datasets == 'camelyon16':
-        args.fix_loader_random = True
-        args.fix_train_random = True
-
-    if args.datasets == 'tcga':
-        args.num_workers = 0
-        args.always_test = True
+    args.fix_loader_random = True
+    args.fix_train_random = True
 
     if args.wandb:
         wandb.login()
