@@ -113,11 +113,11 @@ class SAttention(nn.Module):
         #---->cls_token
         x = self.norm(x)
 
-        logits = x[:,0,:]
+        feat = x[:,0,:]
  
         if return_attn:
             _a = attn
-            return logits ,_a
+            return feat ,_a
         else:
-            return logits
+            return feat
     
