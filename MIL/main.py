@@ -18,6 +18,7 @@ from collections import OrderedDict
 
 from utils import *
 
+
 def main(args):
     # set seed
     seed_torch(args.seed)
@@ -300,7 +301,7 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     num_total_param = sum(p.numel() for p in model.parameters())
     if not args.no_log:
-        print('Number of total parameters: {}, tunable parameters: {}'.format(num_total_param, n_parameters))\
+        print('Number of total parameters: {}, tunable parameters: {}'.format(num_total_param, n_parameters))
     
     for i, data in enumerate(loader):
         optimizer.zero_grad()
@@ -341,11 +342,10 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
             lrl = [param_group['lr'] for param_group in optimizer.param_groups]
             lr = sum(lrl) / len(lrl)
             rowd = OrderedDict([
-                ('cls_loss',loss_cls_meter.avg),
                 ('lr',lr),
             ])
             if not args.no_log:
-                print('[{}/{}] logit_loss:{}, cls_loss:{} '.format(i,len(loader)-1,loss_cls_meter.avg,loss_cl_meter.avg))
+                print('[{}/{}] logit_loss:{}'.format(i,len(loader)-1,loss_cls_meter.avg))
             rowd = OrderedDict([ (str(k)+'-fold/'+_k,_v) for _k, _v in rowd.items()])
             if args.wandb:
                 wandb.log(rowd)
@@ -391,6 +391,7 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
     if args.n_classes == 2:
         accuracy, auc_value, precision, recall, fscore = five_scores(bag_labels, bag_logits)
     else:
+        confusion_matrix(bag_labels, bag_logits, args.class_labels)
         auc_value, accuracy, recall, precision, fscore = multi_class_scores(bag_labels, bag_logits)
     if test_mode:
         return accuracy, auc_value, precision, recall, fscore, loss_cls_meter.avg
@@ -410,7 +411,7 @@ if __name__ == '__main__':
     # Dataset 
     parser.add_argument('--datasets', default='gc', type=str, help='[camelyon16, tcga, ngc, gc, fnac]')
     parser.add_argument('--dataset_root', default='/home1/wsi/gc-all-features/frozen/plip1', type=str, help='Dataset root path')
-    parser.add_argument('--label_path', default='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc/labels', type=str, help='label of train dataset')
+    parser.add_argument('--label_path', default='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc/n-labels', type=str, help='label of train dataset')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
     parser.add_argument('--fix_train_random', action='store_true', help='Fix random seed of Training')
     parser.add_argument('--val_ratio', default=0., type=float, help='Val-set ratio')
@@ -426,7 +427,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_epoch', default=200, type=int, help='Number of total training epochs [200]')
     parser.add_argument('--early_stopping', action='store_false', help='Early stopping')
     parser.add_argument('--max_epoch', default=130, type=int, help='Number of max training epochs in the earlystopping [130]')
-    parser.add_argument('--n_classes', default=2, type=int, help='Number of classes')
+    parser.add_argument('--n_classes', default=5, type=int, help='Number of classes')
     parser.add_argument('--batch_size', default=1, type=int, help='Number of batch size')
     parser.add_argument('--loss', default='ce', type=str, help='Classification Loss [ce, bce]')
     parser.add_argument('--opt', default='adam', type=str, help='Optimizer [adam, adamw]')
@@ -484,7 +485,8 @@ if __name__ == '__main__':
 
     args.fix_loader_random = True
     args.fix_train_random = True
-
+    args.class_labels = ['NILM', 'ASC-US', 'ASC-H', 'LSIL', 'HSIL']
+    
     if args.wandb:
         wandb.login()
         if args.auto_resume:

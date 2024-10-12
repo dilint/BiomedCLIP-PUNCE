@@ -1,10 +1,12 @@
 import numpy as np
-from sklearn.metrics import roc_curve, roc_auc_score, precision_recall_fscore_support, accuracy_score
-from sklearn.metrics import average_precision_score,precision_score,f1_score,recall_score
+from sklearn.metrics import precision_recall_fscore_support
+from sklearn.metrics import f1_score,recall_score, roc_curve
+from sklearn.metrics import accuracy_score, precision_score, roc_auc_score
 from torchmetrics.classification import BinarySpecificity, BinaryRecall
 
 import torch
 import os
+
 
 def seed_torch(seed=2021):
         import random
@@ -79,11 +81,6 @@ def optimal_thresh(fpr, tpr, thresholds, p=0):
     idx = np.argmin(loss, axis=0)
     return fpr[idx], tpr[idx], thresholds[idx]
 
-# def five_scores(bag_labels, bag_logits, bag_hat):
-#     auc_value = roc_auc_score(bag_labels, bag_logits)
-#     precision, recall, f1score, _ = precision_recall_fscore_support(bag_labels, bag_hat, average='binary')
-#     accuracy = accuracy_score(bag_labels, bag_hat)
-#     return accuracy, auc_value, precision, recall, f1score
 
 def make_weights_for_balanced_classes_split(dataset):
     N = float(len(dataset))
@@ -129,14 +126,7 @@ def six_scores(bag_labels, bag_predictions, thres):
     # accuracy = 1- np.count_nonzero(np.array(bag_labels).astype(int)- bag_predictions.astype(int)) / len(bag_labels)
     return accuracy, auc_value, precision, recall, specificity, fscore
 
-def tct_recall(bag_labels, bag_predictions, thres): 
-    this_class_label = np.array(bag_predictions)
-    this_class_label[this_class_label>=thres] = 1
-    this_class_label[this_class_label<thres] = 0
-    bag_predictions = this_class_label
-    metric = BinaryRecall()
-    recall = metric(torch.tensor(bag_predictions), torch.tensor(bag_labels))   
-    return recall
+
 
 def multi_class_scores(bag_labels, bag_logits):
     bag_labels = np.array(bag_labels)
@@ -158,6 +148,35 @@ def multi_class_scores(bag_labels, bag_logits):
     roc_auc_macro = np.mean(roc_auc)
     roc_auc_macro
     return roc_auc_macro, accuracy, recall, precision, fscore
+
+
+def confusion_matrix(bag_labels, bag_logits, class_labels):
+    y_true, y_pred = bag_labels, np.argmax(np.array(bag_logits), axis=-1)
+    num_classes = np.unique(bag_labels).max() + 1
+
+    # 初始化混淆矩阵
+    cm_manual = np.zeros((num_classes, num_classes), dtype=int)
+
+    # 遍历数据，填充混淆矩阵
+    for true, pred in zip(y_true, y_pred):
+        cm_manual[true][pred] += 1
+
+    row_totals = [sum(row) for row in cm_manual]
+    col_totals = [sum(col) for col in zip(*cm_manual)]
+    total = sum(row_totals)
+
+    # 重新格式化混淆矩阵，确保第一行包含类别名称
+    formatted_cm_with_labels = "实际\预测\t|\t" + "\t|\t".join(map(str, class_labels)) + "\t|\t总计\n"
+    formatted_cm_with_labels += "-" * ((len(class_labels)+2) * 16) + "\n"
+    for i, label in enumerate(class_labels):
+        formatted_cm_with_labels += label + "\t\t|\t"
+        for j in range(num_classes):
+            formatted_cm_with_labels += str(cm_manual[i][j]) + "\t|\t"
+        formatted_cm_with_labels += str(row_totals[i]) + "\n"
+        formatted_cm_with_labels += "-" * ((len(class_labels)+2) * 16) + "\n"
+    formatted_cm_with_labels += "总计\t\t|\t" + "\t|\t".join(map(str, col_totals)) + "\t|\t" + str(total) + "\n"
+    print(formatted_cm_with_labels)
+    
 
 def cosine_scheduler(base_value, final_value, epochs, niter_per_ep, warmup_epochs=0, start_warmup_value=0):
     warmup_schedule = np.array([])
