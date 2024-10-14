@@ -110,10 +110,16 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     acs,pre,rec,fs,auc,te_auc,te_fs = ckc_metric
 
     # --->load data
-    train_set = C16Dataset(train_p[k],train_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,is_train=True)
-    test_set = C16Dataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
-    val_set = C16Dataset(val_p[k],val_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
-        
+    if args.datasets.lower() == 'gc_mtl':
+        train_set = GcMTLDataset(train_p[k],train_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,num_classes=args.num_classes,num_task=args.num_task,is_train=True)
+        test_set = GcMTLDataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,num_classes=args.num_classes,num_task=args.num_task)
+        val_set = GcMTLDataset(val_p[k],val_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,num_classes=args.num_classes,num_task=args.num_task)
+    else:
+        train_set = C16Dataset(train_p[k],train_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,is_train=True)
+        test_set = C16Dataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
+        val_set = C16Dataset(val_p[k],val_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
+    
+    
     if args.datasets.lower() == 'camelyon16':
         if args.val_ratio == 0.:
             val_set = test_set
@@ -191,34 +197,32 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     for epoch in range(epoch_start, args.num_epoch):
         train_loss,start,end = train_loop(args,model,train_loader,optimizer,device,amp_autocast,criterion,scheduler,k,epoch)
         train_time_meter.update(end-start)
-        stop, accuracy, auc_value, precision, recall, fscore, test_loss = val_loop(args,model,val_loader,device,criterion,early_stopping,epoch)
+        stop, accs, aucs, precisions, recalls, f1s, test_loss = val_loop(args,model,val_loader,device,criterion,early_stopping,epoch)
 
         if not args.no_log:
-            print('\r Epoch [%d/%d] train loss: %.1E, test loss: %.1E, accuracy: %.3f, auc_value:%.3f, precision: %.3f, recall: %.3f, fscore: %.3f , time: %.3f(%.3f)' % 
-        (epoch+1, args.num_epoch, train_loss, test_loss, accuracy, auc_value, precision, recall, fscore, train_time_meter.val,train_time_meter.avg))
+            print('\r Epoch [%d/%d] train loss: %.1E, test loss: %.1E, time: %.3f(%.3f)' % 
+        (epoch+1, args.num_epoch, train_loss, test_loss, train_time_meter.val,train_time_meter.avg))
+            for i in range(args.num_task):
+                print('Task %d: acc: %.3f, auc: %.3f, precision: %.3f, recall: %.3f, f1: %.3f' 
+                      %(i, accs[i], aucs[i], precisions[i], recalls[i], f1s[i]))
+        
+        acc_mean, auc_mean, pre_mean, re_mean, fs_mean = np.mean(accs), np.mean(aucs), np.mean(precisions), np.mean(recalls), np.mean(f1s)
+        # if args.wandb:
+        #     rowd = OrderedDict([
+        #         ("val_acc",accuracy),
+        #         ("val_precision",precision),
+        #         ("val_recall",recall),
+        #         ("val_fscore",fscore),
+        #         ("val_auc",auc_value),
+        #         ("val_loss",test_loss),
+        #         ("epoch",epoch),
+        #     ])
 
-        if args.wandb:
-            rowd = OrderedDict([
-                ("val_acc",accuracy),
-                ("val_precision",precision),
-                ("val_recall",recall),
-                ("val_fscore",fscore),
-                ("val_auc",auc_value),
-                ("val_loss",test_loss),
-                ("epoch",epoch),
-            ])
+        #     rowd = OrderedDict([ (str(k)+'-fold/'+_k,_v) for _k, _v in rowd.items()])
+        #     wandb.log(rowd)
 
-            rowd = OrderedDict([ (str(k)+'-fold/'+_k,_v) for _k, _v in rowd.items()])
-            wandb.log(rowd)
-
-        if auc_value > opt_auc and epoch >= args.save_best_model_stage*args.num_epoch:
-            optimal_ac = accuracy
-            opt_pre = precision
-            opt_re = recall
-            opt_fs = fscore
-            opt_auc = auc_value
-            opt_epoch = epoch
-
+        if auc_mean > opt_auc and epoch >= args.save_best_model_stage*args.num_epoch:
+            opt_acc, opt_pre, opt_re, opt_fs, opt_auc, opt_epoch = acc_mean, pre_mean, re_mean, fs_mean, auc_mean, epoch
             if not os.path.exists(args.model_path):
                 os.mkdir(args.model_path)
             if not args.no_log:
@@ -226,18 +230,18 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
                     'model': model.state_dict(),
                 }
                 torch.save(best_pt, os.path.join(args.model_path, 'fold_{fold}_model_best_auc.pt'.format(fold=k)))
-        if args.wandb:
-            rowd = OrderedDict([
-                ("val_best_acc",optimal_ac),
-                ("val_best_precesion",opt_pre),
-                ("val_best_recall",opt_re),
-                ("val_best_fscore",opt_fs),
-                ("val_best_auc",opt_auc),
-                ("val_best_epoch",opt_epoch),
-            ])
+        # if args.wandb:
+        #     rowd = OrderedDict([
+        #         ("val_best_acc",optimal_ac),
+        #         ("val_best_precesion",opt_pre),
+        #         ("val_best_recall",opt_re),
+        #         ("val_best_fscore",opt_fs),
+        #         ("val_best_auc",opt_auc),
+        #         ("val_best_epoch",opt_epoch),
+        #     ])
 
-            rowd = OrderedDict([ (str(k)+'-fold/'+_k,_v) for _k, _v in rowd.items()])
-            wandb.log(rowd)
+        #     rowd = OrderedDict([ (str(k)+'-fold/'+_k,_v) for _k, _v in rowd.items()])
+        #     wandb.log(rowd)
         
         # save checkpoint
         random_state = {
@@ -255,7 +259,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
             'early_stop': early_stopping.state_dict(),
             'random': random_state,
             'ckc_metric': [acs,pre,rec,fs,auc,te_auc,te_fs],
-            'val_best_metric': [optimal_ac, opt_pre, opt_re, opt_fs, opt_auc,opt_epoch],
+            'val_best_metric': [opt_acc, opt_pre, opt_re, opt_fs, opt_auc,opt_epoch],
             'wandb_id': wandb.run.id if args.wandb else '',
         }
         if not args.no_log:
@@ -272,15 +276,15 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         
     accuracy, auc_value, precision, recall, fscore,test_loss_log = val_loop(args,model,test_loader,device,criterion,epoch,test_mode=True)
     
-    if args.wandb:
-        wandb.log({
-            "test_acc":accuracy,
-            "test_precesion":precision,
-            "test_recall":recall,
-            "test_fscore":fscore,
-            "test_auc":auc_value,
-            "test_loss":test_loss_log,
-        })
+    # if args.wandb:
+    #     wandb.log({
+    #         "test_acc":accuracy,
+    #         "test_precesion":precision,
+    #         "test_recall":recall,
+    #         "test_fscore":fscore,
+    #         "test_auc":auc_value,
+    #         "test_loss":test_loss_log,
+    #     })
     if not args.no_log:
         print('\n Optimal accuracy: %.3f ,Optimal auc: %.3f,Optimal precision: %.3f,Optimal recall: %.3f,Optimal fscore: %.3f' % (optimal_ac,opt_auc,opt_pre,opt_re,opt_fs))
     acs.append(accuracy)
@@ -306,7 +310,7 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
     for i, data in enumerate(loader):
         optimizer.zero_grad()
 
-        bag, label=data[0].to(device), data[1].to(device)  # b*n*1024
+        bag, label, task_id = data[0].to(device), data[1].to(device), data[2].to(device)  # b*n*1024
         batch_size=bag.size(0)
             
         with amp_autocast():
@@ -315,12 +319,12 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
             elif args.group_shuffle:
                 bag = group_shuffle(bag,args.shuffle_group)
            
-            train_logits = model(bag)
+            train_logits = model(bag, task_id)
 
             if args.loss == 'ce':
                 logit_loss = criterion(train_logits.view(batch_size,-1),label)
             elif args.loss == 'bce':
-                logit_loss = criterion(train_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1).float(),num_classes=2))
+                logit_loss = criterion(train_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1).float(),num_classes=args.num_classes[task_id]))
 
         train_loss = args.cls_alpha * logit_loss
 
@@ -363,38 +367,48 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
     model.eval()
     loss_cls_meter = AverageMeter()
     bag_logits, bag_labels=[], []
+    for i in range(args.num_task):
+        bag_logits.append([])
+        bag_labels.append([])
 
     with torch.no_grad():
         for i, data in enumerate(loader):
             
-            bag, label = data[0].to(device), data[1].to(device)  # b*n*1024
-            bag_labels.append(data[1].item())
+            bag, label, task_id = data[0].to(device), data[1].to(device), data[2] # b*n*1024
+            bag_labels[task_id].append(data[1].item())
             batch_size=bag.size(0)
 
             test_logits = model(bag)
             
             if args.loss == 'ce':
                 test_loss = criterion(test_logits.view(batch_size,-1),label)    
-                if args.n_classes == 2:
-                    bag_logits.extend(torch.softmax(test_logits,dim=-1)[:,1].cpu().numpy())
+                if args.num_classes[task_id] == 2:
+                    bag_logits[task_id].extend(torch.softmax(test_logits,dim=-1)[:,1].cpu().numpy())
                 else:
-                    bag_logits.extend(torch.softmax(test_logits, dim=-1).cpu().numpy())
+                    bag_logits[task_id].extend(torch.softmax(test_logits, dim=-1).cpu().numpy())
             # TODO have not updated            
             elif args.loss == 'bce':
                 
                 test_loss = criterion(test_logits[0].view(batch_size,-1),label.view(batch_size,-1).float())
-                bag_logits.append(torch.sigmoid(test_logits).cpu().squeeze().numpy())
+                bag_logits[task_id].append(torch.sigmoid(test_logits).cpu().squeeze().numpy())
 
             loss_cls_meter.update(test_loss,1)
     
     # save the log file
-    if args.n_classes == 2:
-        accuracy, auc_value, precision, recall, fscore = five_scores(bag_labels, bag_logits)
-    else:
-        confusion_matrix(bag_labels, bag_logits, args.class_labels)
-        auc_value, accuracy, recall, precision, fscore = multi_class_scores(bag_labels, bag_logits)
+    accs, aucs, precisions, recalls, f1s = [], [], [], [], []
+    for i in range(args.num_task):
+        confusion_matrix(bag_labels[i], bag_logits[i], args.class_labels[i])
+        if args.num_classes[i] == 2:
+            accuracy, auc_value, precision, recall, fscore = five_scores(bag_labels[i], bag_logits[i])
+        else:
+            auc_value, accuracy, recall, precision, fscore = multi_class_scores(bag_labels[i], bag_logits[i])
+        accs.append(accuracy)
+        aucs.append(auc_value)
+        precisions.append(precision)
+        recalls.append(recall)
+        f1s.append(fscore)
     if test_mode:
-        return accuracy, auc_value, precision, recall, fscore, loss_cls_meter.avg
+        return accs, aucs, precisions, recalls, f1s, loss_cls_meter.avg
     else:
         # val mode detect early stopping
         # early stop
@@ -403,13 +417,13 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
             stop = early_stopping.early_stop
         else:
             stop = False
-        return stop,accuracy, auc_value, precision, recall, fscore,loss_cls_meter.avg
+        return stop, accs, aucs, precisions, recalls, f1s,loss_cls_meter.avg
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MIL Training Script')
 
     # Dataset 
-    parser.add_argument('--datasets', default='gc', type=str, help='[camelyon16, tcga, ngc, gc, fnac]')
+    parser.add_argument('--datasets', default='gc_mtl', type=str, help='[camelyon16, tcga, ngc, gc, fnac, gc_mtl]')
     parser.add_argument('--dataset_root', default='/home1/wsi/gc-all-features/frozen/plip1', type=str, help='Dataset root path')
     parser.add_argument('--label_path', default='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc/n-labels', type=str, help='label of train dataset')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
@@ -485,7 +499,13 @@ if __name__ == '__main__':
 
     args.fix_loader_random = True
     args.fix_train_random = True
-    args.class_labels = ['NILM', 'ASC-US', 'ASC-H', 'LSIL', 'HSIL']
+    # args.num_task = 3
+    # args.num_classes = [5, 2, 4]
+    # args.class_labels = [['NILM', 'ASC-US', 'ASC-H', 'LSIL', 'HSIL'], ['NILM', 'AGC'], ['NILM', 'T', 'M', 'BV']]
+    args.num_task = 1
+    args.num_classes = [5]
+    args.class_labels = [['NILM', 'ASC-US', 'ASC-H', 'LSIL', 'HSIL']]
+    
     
     if args.wandb:
         wandb.login()
@@ -496,6 +516,6 @@ if __name__ == '__main__':
             wandb.init(project=args.project, name=args.title,config=args,dir=os.path.join(args.model_path))
         
     print(args)
-    localtime = time.asctime( time.localtime(time.time()) )
+    localtime = time.asctime(time.localtime(time.time()) )
     print(localtime)
     main(args=args)

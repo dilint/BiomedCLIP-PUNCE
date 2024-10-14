@@ -199,6 +199,23 @@ class C16Dataset(Dataset):
         label = int(self.slide_label[idx])
         return features, label, file_path
     
+class GcMTLDataset(C16Dataset):
+    def __init__(self, file_name, file_label,root,persistence,keep_same_psize,num_classes,num_task,is_train=False):
+        super(GcMTLDataset, self).__init__(file_name, file_label,root,persistence,keep_same_psize,is_train)
+        self.num_classes = num_classes
+        self.num_task = num_task
+        
+    def __getitem__(self, idx):
+        features, label, file_path = super().__getitem__(idx)
+        tensor_num_classes = torch.tensor(self.num_classes)
+        tensor_num_classes_cumsum = tensor_num_classes.cumsum(dim=0)
+        # 第一个位置大于label的位置即为task_id
+        task_id = next((i for i, x in enumerate(tensor_num_classes_cumsum) if x > label), -1)
+
+        if task_id > 0:
+            label -= tensor_num_classes_cumsum[task_id-1]
+        return features, label, task_id, file_path
+    
 class GcDataset(C16Dataset):
     def __init__(self, file_name, file_label,root,persistence,keep_same_psize,high_weight,is_train=False):
         """
