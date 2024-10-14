@@ -51,7 +51,7 @@ def main(args):
         train_p, train_l, test_p, test_l, val_p, val_l = get_kflod(args.cv_fold, p, l,args.val_ratio)
     
     acs, pre, rec,fs,auc, te_auc, te_fs=[],[],[],[],[],[],[]
-    ckc_metric = [acs, pre, rec, fs, auc, te_auc, te_fs]
+    ckc_metric = [acs, pre, rec, fs, auc, te_auc, te_fs] # acs: [fold, fold] fold: [task1, task2]
 
     if not args.no_log:
         print('Dataset: ' + args.datasets)
@@ -72,34 +72,25 @@ def main(args):
             print('Start %d-fold cross validation: fold %d ' % (args.cv_fold, k))
         ckc_metric = one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l)
 
-    if args.always_test:
-        if args.wandb:
-            wandb.log({
-                "cross_val/te_auc_mean":np.mean(np.array(te_auc)),
-                "cross_val/te_auc_std":np.std(np.array(te_auc)),
-                "cross_val/te_f1_mean":np.mean(np.array(te_fs)),
-                "cross_val/te_f1_std":np.std(np.array(te_fs)),
-            })
-
-    if args.wandb:
-        wandb.log({
-            "cross_val/acc_mean":np.mean(np.array(acs)),
-            "cross_val/auc_mean":np.mean(np.array(auc)),
-            "cross_val/f1_mean":np.mean(np.array(fs)),
-            "cross_val/pre_mean":np.mean(np.array(pre)),
-            "cross_val/recall_mean":np.mean(np.array(rec)),
-            "cross_val/acc_std":np.std(np.array(acs)),
-            "cross_val/auc_std":np.std(np.array(auc)),
-            "cross_val/f1_std":np.std(np.array(fs)),
-            "cross_val/pre_std":np.std(np.array(pre)),
-            "cross_val/recall_std":np.std(np.array(rec)),
-        })
-    if not args.no_log:
-        print('Cross validation accuracy mean: %.3f, std %.3f ' % (np.mean(np.array(acs)), np.std(np.array(acs))))
-        print('Cross validation auc mean: %.3f, std %.3f ' % (np.mean(np.array(auc)), np.std(np.array(auc))))
-        print('Cross validation precision mean: %.3f, std %.3f ' % (np.mean(np.array(pre)), np.std(np.array(pre))))
-        print('Cross validation recall mean: %.3f, std %.3f ' % (np.mean(np.array(rec)), np.std(np.array(rec))))
-        print('Cross validation fscore mean: %.3f, std %.3f ' % (np.mean(np.array(fs)), np.std(np.array(fs))))
+    # if args.wandb:
+    #     wandb.log({
+    #         "cross_val/acc_mean":np.mean(np.array(acs)),
+    #         "cross_val/auc_mean":np.mean(np.array(auc)),
+    #         "cross_val/f1_mean":np.mean(np.array(fs)),
+    #         "cross_val/pre_mean":np.mean(np.array(pre)),
+    #         "cross_val/recall_mean":np.mean(np.array(rec)),
+    #         "cross_val/acc_std":np.std(np.array(acs)),
+    #         "cross_val/auc_std":np.std(np.array(auc)),
+    #         "cross_val/f1_std":np.std(np.array(fs)),
+    #         "cross_val/pre_std":np.std(np.array(pre)),
+    #         "cross_val/recall_std":np.std(np.array(rec)),
+    #     })
+    # if not args.no_log:
+    #     print('Cross validation accuracy mean: %.3f, std %.3f ' % (np.mean(np.array(acs)), np.std(np.array(acs))))
+    #     print('Cross validation auc mean: %.3f, std %.3f ' % (np.mean(np.array(auc)), np.std(np.array(auc))))
+    #     print('Cross validation precision mean: %.3f, std %.3f ' % (np.mean(np.array(pre)), np.std(np.array(pre))))
+    #     print('Cross validation recall mean: %.3f, std %.3f ' % (np.mean(np.array(rec)), np.std(np.array(rec))))
+    #     print('Cross validation fscore mean: %.3f, std %.3f ' % (np.mean(np.array(fs)), np.std(np.array(fs))))
 
 
 def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
@@ -207,19 +198,18 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
                       %(i, accs[i], aucs[i], precisions[i], recalls[i], f1s[i]))
         
         acc_mean, auc_mean, pre_mean, re_mean, fs_mean = np.mean(accs), np.mean(aucs), np.mean(precisions), np.mean(recalls), np.mean(f1s)
-        # if args.wandb:
-        #     rowd = OrderedDict([
-        #         ("val_acc",accuracy),
-        #         ("val_precision",precision),
-        #         ("val_recall",recall),
-        #         ("val_fscore",fscore),
-        #         ("val_auc",auc_value),
-        #         ("val_loss",test_loss),
-        #         ("epoch",epoch),
-        #     ])
-
-        #     rowd = OrderedDict([ (str(k)+'-fold/'+_k,_v) for _k, _v in rowd.items()])
-        #     wandb.log(rowd)
+        if args.wandb:
+            for i in range(args.num_task):
+                rowd = OrderedDict([
+                    (f"val_acc",accs[i]),
+                    (f"val_precision",precisions[i]),
+                    (f"val_recall",recalls[i]),
+                    (f"val_fscore",f1s[i]),
+                    (f"val_auc",aucs[i]),
+                    # ("val_loss",test_loss),
+                ])
+                rowd = OrderedDict([ (str(k)+'-fold/'+str(i)+'-task/'+_k,_v) for _k, _v in rowd.items()])
+                wandb.log(rowd)
 
         if auc_mean > opt_auc and epoch >= args.save_best_model_stage*args.num_epoch:
             opt_acc, opt_pre, opt_re, opt_fs, opt_auc, opt_epoch = acc_mean, pre_mean, re_mean, fs_mean, auc_mean, epoch
@@ -274,31 +264,36 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         info = model.load_state_dict(best_std['model'])
         print(info)
         
-    accuracy, auc_value, precision, recall, fscore,test_loss_log = val_loop(args,model,test_loader,device,criterion,epoch,test_mode=True)
+    accs, aucs, precisions, recalls, f1s, test_loss = val_loop(args,model,test_loader,device,criterion,early_stopping,epoch,test_mode=True)
     
-    # if args.wandb:
-    #     wandb.log({
-    #         "test_acc":accuracy,
-    #         "test_precesion":precision,
-    #         "test_recall":recall,
-    #         "test_fscore":fscore,
-    #         "test_auc":auc_value,
-    #         "test_loss":test_loss_log,
-    #     })
+    if args.wandb:
+        for i in range(args.num_task):
+            rowd = OrderedDict([
+                ("test_acc",accs[i]),
+                ("test_precision",precisions[i]),
+                ("test_recall",recalls[i]),
+                ("test_fscore",f1s[i]),
+                ("test_auc",aucs[i]),
+                # ("val_loss",test_loss),
+            ])
+            rowd = OrderedDict([ (str(k)+'-fold/'+str(i)+'-task/'+_k,_v) for _k, _v in rowd.items()])
+            wandb.log(rowd)
+        
     if not args.no_log:
         print('\n Optimal accuracy: %.3f ,Optimal auc: %.3f,Optimal precision: %.3f,Optimal recall: %.3f,Optimal fscore: %.3f' % (optimal_ac,opt_auc,opt_pre,opt_re,opt_fs))
-    acs.append(accuracy)
-    pre.append(precision)
-    rec.append(recall)
-    fs.append(fscore)
-    auc.append(auc_value)
+    acs_fold, pre_fold, rec_fold, fs_fold, auc_fold = [], [], [], [], []
+    acs_fold.append(accs)
+    pre_fold.append(precisions)
+    rec_fold.append(recalls)
+    fs_fold.append(f1s)
+    auc_fold.append(aucs)
 
-    return [acs,pre,rec,fs,auc,te_auc,te_fs]
+    return [acs_fold,pre_fold,rec_fold,fs_fold,auc_fold]
+    # return [acs_fold,pre_fold,rec_fold,fs_fold,auc_fold,te_auc,te_fs]
 
 def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,scheduler,k,epoch):
     start = time.time()
     loss_cls_meter = AverageMeter()
-    loss_cl_meter = AverageMeter()
     train_loss_log = 0.
     model.train()
     
