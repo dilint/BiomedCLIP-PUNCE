@@ -4,13 +4,12 @@ from math import floor
 from PIL import Image
 import open_clip
 from torchvision import transforms
-import torch.utils.benchmark as benchmark
 import os
 import copy
 import time
 from torch.utils.data import DataLoader, Dataset
 from models.model_adapter import LinearAdapter
-from models.model_backbone import ResnetBackbone, BiomedclipBackbone, ClipBackbone, PlipBackbone, Dinov2Backbone, GigapathBackbone, MaeBackbone
+from models.model_backbone import ResnetBackbone, BiomedclipBackbone, ClipBackbone, PlipBackbone, Dinov2Backbone, GigapathBackbone
 import argparse
 from utils.file_utils import save_hdf5
 from PIL import Image
@@ -47,7 +46,13 @@ class Whole_Slide_Patchs_Ngc(Dataset):
             print(e)
             
     def __getitem__(self, idx):
-        img = Image.open(self.patch_files[idx])
+        try:
+            img = Image.open(self.patch_files[idx])
+        except Exception as e:
+            with open('/data/hjl/data/tmp/log.txt', 'a') as f:
+                f.write(f'{e}\n')
+            return None
+
         if self.is_plip:
             img = self.preprocess(images=img, return_tensors='pt').data['pixel_values'].squeeze(0)
         else:
@@ -59,6 +64,20 @@ class Whole_Slide_Patchs_Ngc(Dataset):
 
     def __str__(self) -> str:
         return f'the length of patchs in {self.wsi_path} is {self.__len__()}'
+    
+def my_collate(batch): 
+    len_batch = len(batch)  # original batch length
+    batch = list(filter(lambda x: x is not None, batch))  # filter out all the Nones
+    if len(batch) == 0:  # if all the samples are None, return an empty batch
+        return batch 
+    # if len_batch > len(batch):  # source all the required samples from the original dataset at random
+    #     diff = len_batch - len(batch)
+    #     for i in range(diff):
+    #         item = dataset[np.random.randint(0, len(dataset))]
+    #         while item is None:
+    #             item = dataset[np.random.randint(0, len(dataset))]
+    #         batch.append(item)
+    return torch.utils.data.dataloader.default_collate(batch) 
 
 def compute_w_loader(wsi_dir, 
                       output_path, 
@@ -75,12 +94,14 @@ def compute_w_loader(wsi_dir,
         dataset = Whole_Slide_Patchs_Ngc(wsi_dir, target_patch_size, preprocess_val, is_plip=True)
     else:
         dataset = Whole_Slide_Patchs_Ngc(wsi_dir, target_patch_size, preprocess_val)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn = my_collate)
     if verbose > 0:
         print('processing {}: total of {} batches'.format(wsi_dir,len(loader)))
     
     mode = 'w'
     for i, batch in enumerate(loader):
+        if len(batch) == 0:
+            continue
         with torch.no_grad():
             if i % print_every == 0:
                 print('batch {}/{}, {} files processed'.format(i, len(loader), i * batch_size))
@@ -97,23 +118,23 @@ def compute_w_loader(wsi_dir,
 def main():
     # set argsrget_patch
     parser = argparse.ArgumentParser(description='NGC dataset Feature Extraction')
-    parser.add_argument('--dataset', type=str, default='gc', choices=['ngc', 'ubc', 'gc', 'fnac'])
-    parser.add_argument('--wsi_root', type=str, default='/home1/wsi/gc-224')
-    parser.add_argument('--output_path', type=str, default='/home1/wsi/gc-all-features/frozen')
-    parser.add_argument('--feat_dir', type=str, default='test')
+    parser.add_argument('--dataset', type=str, default='gc-2000', choices=['ngc', 'ubc', 'gc', 'fnac', 'gc-2000'])
+    parser.add_argument('--wsi_root', type=str, default='/data/hjl/data/TCTGC-2000')
+    parser.add_argument('--output_path', type=str, default='/data/hjl/data/frozen-gc-features')
+    parser.add_argument('--feat_dir', type=str, default='gigapath')
     parser.add_argument('--verbose', type=int, default=0)
     parser.add_argument('--print_every', type=int, default=20)
     # inference options 
     parser.add_argument('--multi_gpu', action='store_true', default=False)
-    parser.add_argument('--batch_size', type=int, default=32)  
-    parser.add_argument('--num_workers', type=int, default=64)  
+    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--num_workers', type=int, default=64)
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--world_size', type=int, default=1)
     parser.add_argument('--target_patch_size', type=int, nargs='+', default=(224, 224))
     # model options
-    parser.add_argument('--base_model', default='plip', type=str, choices=['biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2', 'gigapath', 'mae'])
-    parser.add_argument('--with_adapter', default=True, action='store_true')
-    parser.add_argument('--ckp_path', type=str, default='/home/huangjialong/projects/BiomedCLIP-PUNCE/Patch encoder/output-model/simclr-infonce/plip_simclr_infonce_filterGC_50_224_4*256_200/plip_simclr_infonce_filterGC_50_224_4*256_200_epoch200.pt')
+    parser.add_argument('--base_model', default='gigapath', type=str, choices=['biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2', 'gigapath'])
+    parser.add_argument('--with_adapter', action='store_true')
+    parser.add_argument('--ckp_path', type=str, default=None)
     parser.add_argument('--without_head', action='store_true')
     parser.add_argument('--default_preprocess', action='store_true')
     args = parser.parse_args()
@@ -145,7 +166,10 @@ def main():
         wsi_dirs = []
         for sub_path in sub_paths:
             wsi_dirs.extend([os.path.join(wsi_root, sub_path, wsi_name) for wsi_name in os.listdir(os.path.join(wsi_root, sub_path))])
-            
+    
+    elif args.dataset == 'gc-2000':
+        wsi_dirs = [os.path.join(wsi_root, subdir) for subdir in os.listdir(wsi_root)]
+
     elif args.dataset == 'ubc':
         wsi_dirs = [os.path.join(wsi_root, subdir) for subdir in os.listdir(wsi_root)]
     
@@ -189,29 +213,8 @@ def main():
     elif args.base_model == 'gigapath':
         backbone = GigapathBackbone()
         input_dim = 1536
-    elif args.base_model == 'mae':
-        backbone = MaeBackbone()
-        input_dim = 768
     preprocess_val = backbone.preprocess_val
     
-    if args.default_preprocess:
-        preprocess_val = transforms.Compose([
-            transforms.Resize((224, 224), interpolation=transforms.InterpolationMode.BICUBIC),
-            transforms.CenterCrop((224,224)),
-            transforms.ToTensor()])
-            
-    print('load backbone successfully')
-    
-    if args.with_adapter:
-        adapter = LinearAdapter(input_dim)
-        ckp = torch.load(args.ckp_path)
-        adapter.load_state_dict(ckp['adapter'])
-        model = nn.Sequential(backbone, adapter).to(device)
-    else:
-        model = nn.Sequential(backbone).to(device)
-    model.eval()
-    total = len(wsi_dirs)    
-
     # # 准备一批数据
     # batch_size = 32
     # input_data = torch.randn(batch_size, 3, 224, 224)
@@ -235,6 +238,24 @@ def main():
     # print(f"{args.base_model}: 模型每秒处理 {fps} 个样本, 经过了{elapsed_time}秒")
     # return
     
+    if args.default_preprocess:
+        preprocess_val = transforms.Compose([
+            transforms.Resize((224, 224), interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.CenterCrop((224,224)),
+            transforms.ToTensor()])
+            
+    print('load backbone successfully')
+    
+    if args.with_adapter:
+        adapter = LinearAdapter(input_dim)
+        ckp = torch.load(args.ckp_path)
+        adapter.load_state_dict(ckp['adapter'])
+        model = nn.Sequential(backbone, adapter).to(device)
+    else:
+        model = nn.Sequential(backbone).to(device)
+    model.eval()
+    total = len(wsi_dirs)    
+
     for idx in range(total):
         if idx % args.world_size != args.local_rank:
             continue
@@ -276,4 +297,3 @@ if __name__ == '__main__':
     print('\n The program took {} h {} min {} s'.format(time_elapesd//3600,
                                                     time_elapesd%3600//60,
                                                     time_elapesd%60))
-    
