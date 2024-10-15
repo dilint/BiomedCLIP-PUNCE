@@ -194,7 +194,7 @@ class C16Dataset(Dataset):
             else:
                 dir_path = self.root
             file_path = os.path.join(dir_path, self.file_name[idx]+'.pt')
-            features = torch.load(file_path)
+            features = torch.load(file_path, map_location='cpu', weights_only=True)
 
         label = int(self.slide_label[idx])
         return features, label, file_path

@@ -128,8 +128,9 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
 
     # model
-    model = MIL(input_dim=args.input_dim, 
-                n_classes=args.n_classes, 
+    model = MIL_MTL(input_dim=args.input_dim, 
+                num_classes=args.num_classes, 
+                num_task=args.num_task,
                 mil=args.mil_method,
                 dropout=args.dropout, 
                 act=args.act).to(device)
@@ -373,7 +374,7 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
             bag_labels[task_id].append(data[1].item())
             batch_size=bag.size(0)
 
-            test_logits = model(bag)
+            test_logits = model(bag, task_id)
             
             if args.loss == 'ce':
                 test_loss = criterion(test_logits.view(batch_size,-1),label)    
@@ -419,8 +420,8 @@ if __name__ == '__main__':
 
     # Dataset 
     parser.add_argument('--datasets', default='gc_mtl', type=str, help='[camelyon16, tcga, ngc, gc, fnac, gc_mtl]')
-    parser.add_argument('--dataset_root', default='/home1/wsi/gc-all-features/frozen/plip1', type=str, help='Dataset root path')
-    parser.add_argument('--label_path', default='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc/n-labels', type=str, help='label of train dataset')
+    parser.add_argument('--dataset_root', default='/data/hjl/data/frozen-gc-features/gigapath', type=str, help='Dataset root path')
+    parser.add_argument('--label_path', default='/data/hjl/projects/BiomedCLIP-PUNCE/datatools/gc-2000/labels', type=str, help='label of train dataset')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
     parser.add_argument('--fix_train_random', action='store_true', help='Fix random seed of Training')
     parser.add_argument('--val_ratio', default=0., type=float, help='Val-set ratio')
@@ -428,7 +429,7 @@ if __name__ == '__main__':
     parser.add_argument('--cv_fold', default=1, type=int, help='Number of cross validation fold [3]')
     parser.add_argument('--persistence', action='store_true', help='Load data into memory') 
     parser.add_argument('--same_psize', default=0, type=int, help='Keep the same size of all patches [0]')
-    parser.add_argument('--train_val', default=True, action='store_true', help='use train and val set to train the model')
+    parser.add_argument('--train_val', action='store_true', help='use train and val set to train the model')
 
     # Train
     parser.add_argument('--cls_alpha', default=1.0, type=float, help='Main loss alpha')
@@ -459,7 +460,7 @@ if __name__ == '__main__':
     parser.add_argument('--dropout', default=0.25, type=float, help='Dropout in the projection head')
     parser.add_argument('--n_heads', default=8, type=int, help='Number of head in the MSA')
     parser.add_argument('--da_act', default='relu', type=str, help='Activation func in the DAttention [gelu,relu]')
-    parser.add_argument('--input_dim', default=512, type=int, help='The dimention of patch feature')
+    parser.add_argument('--input_dim', default=1536, type=int, help='The dimention of patch feature')
 
     # Shuffle
     parser.add_argument('--patch_shuffle', action='store_true', help='2-D group shuffle')
@@ -468,13 +469,13 @@ if __name__ == '__main__':
 
     # Misc
     parser.add_argument('--title', default='test', type=str, help='Title of exp')
-    parser.add_argument('--project', default='test', type=str, help='Project name of exp')
+    parser.add_argument('--project', default='test-524', type=str, help='Project name of exp')
     parser.add_argument('--log_iter', default=100, type=int, help='Log Frequency')
     parser.add_argument('--amp', action='store_true', help='Automatic Mixed Precision Training')
     parser.add_argument('--wandb', action='store_true', help='Weight&Bias')
     parser.add_argument('--num_workers', default=2, type=int, help='Number of workers in the dataloader')
     parser.add_argument('--no_log', action='store_true', help='Without log')
-    parser.add_argument('--model_path', type=str, default='output-model', help='Output path')
+    parser.add_argument('--model_path', type=str, default='/data/hjl/projects/BiomedCLIP-PUNCE/MIL/output-model', help='Output path')
 
     args = parser.parse_args()
     if args.train_val:
@@ -494,13 +495,12 @@ if __name__ == '__main__':
 
     args.fix_loader_random = True
     args.fix_train_random = True
+    args.num_task = 3
+    args.num_classes = [5, 2, 4]
+    args.class_labels = [['NILM', 'ASC-US', 'ASC-H', 'LSIL', 'HSIL'], ['NILM', 'AGC'], ['NILM', 'T', 'M', 'BV']]
     # args.num_task = 3
-    # args.num_classes = [5, 2, 4]
-    # args.class_labels = [['NILM', 'ASC-US', 'ASC-H', 'LSIL', 'HSIL'], ['NILM', 'AGC'], ['NILM', 'T', 'M', 'BV']]
-    args.num_task = 1
-    args.num_classes = [5]
-    args.class_labels = [['NILM', 'ASC-US', 'ASC-H', 'LSIL', 'HSIL']]
-    
+    # args.num_classes = [2,2,4]
+    # args.class_labels = [['NILM', 'POS'], ['NILM', 'AGC'], ['NILM', 'T', 'M', 'BV']]
     
     if args.wandb:
         wandb.login()

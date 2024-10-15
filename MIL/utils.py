@@ -98,7 +98,11 @@ def five_scores(bag_labels, bag_predictions):
     fpr, tpr, threshold = roc_curve(bag_labels, bag_predictions, pos_label=1)
     fpr_optimal, tpr_optimal, threshold_optimal = optimal_thresh(fpr, tpr, threshold)
     # threshold_optimal=0.5
-    auc_value = roc_auc_score(bag_labels, bag_predictions)
+    try:
+        auc_value = roc_auc_score(bag_labels, bag_predictions)
+    except Exception as e:
+        print(e)
+        auc_value = 0
     this_class_label = np.array(bag_predictions)
     this_class_label[this_class_label>=threshold_optimal] = 1
     this_class_label[this_class_label<threshold_optimal] = 0
@@ -151,8 +155,11 @@ def multi_class_scores(bag_labels, bag_logits):
 
 
 def confusion_matrix(bag_labels, bag_logits, class_labels):
-    y_true, y_pred = bag_labels, np.argmax(np.array(bag_logits), axis=-1)
-    num_classes = np.unique(bag_labels).max() + 1
+    if len(class_labels) > 2:
+        y_true, y_pred = bag_labels, np.argmax(np.array(bag_logits), axis=-1)
+    else:
+        y_true, y_pred = bag_labels, np.array([1 if x > 0.5 else 0 for x in bag_logits])
+    num_classes = len(class_labels)
 
     # 初始化混淆矩阵
     cm_manual = np.zeros((num_classes, num_classes), dtype=int)
