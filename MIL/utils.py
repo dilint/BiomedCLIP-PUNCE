@@ -131,7 +131,6 @@ def six_scores(bag_labels, bag_predictions, thres):
     return accuracy, auc_value, precision, recall, specificity, fscore
 
 
-
 def multi_class_scores(bag_labels, bag_logits):
     bag_labels = np.array(bag_labels)
     n_classes = max(bag_labels) + 1
@@ -140,13 +139,13 @@ def multi_class_scores(bag_labels, bag_logits):
     bag_logits = np.array(bag_logits)
     bag_pred = np.argmax(bag_logits, axis=-1)
     accuracy = accuracy_score(bag_labels, bag_pred)
-    recall = recall_score(bag_labels, bag_pred, average=None)
+    recall = recall_score(bag_labels[1:], bag_pred[1:], average=None)
     print(recall)
-    recall = recall_score(bag_labels, bag_pred, average='macro')
-    precision = precision_score(bag_labels, bag_pred, average='macro')
-    fscore = f1_score(bag_labels, bag_pred, average='macro')
+    recall = recall_score(bag_labels[1:], bag_pred[1:], average='macro')
+    precision = precision_score(bag_labels[1:], bag_pred[1:], average='macro')
+    fscore = f1_score(bag_labels[1:], bag_pred[1:], average='macro')
     roc_auc = dict()
-    for i in range(n_classes):
+    for i in range(1, n_classes):
         roc_auc[i] = roc_auc_score(bag_labels_one_hot[:, i], bag_logits[:, i])
     roc_auc = list(roc_auc.values())
     roc_auc_macro = np.mean(roc_auc)
@@ -155,7 +154,7 @@ def multi_class_scores(bag_labels, bag_logits):
 
 
 def confusion_matrix(bag_labels, bag_logits, class_labels):
-    if len(class_labels) > 2:
+    if isinstance(bag_logits[0], np.ndarray):
         y_true, y_pred = bag_labels, np.argmax(np.array(bag_logits), axis=-1)
     else:
         y_true, y_pred = bag_labels, np.array([1 if x > 0.5 else 0 for x in bag_logits])

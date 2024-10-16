@@ -162,7 +162,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     else:
         early_stopping = None
 
-    optimal_ac, opt_pre, opt_re, opt_fs, opt_auc,opt_epoch = 0, 0, 0, 0,0,0
+    optimal_ac, opt_pre, opt_re, opt_fs, opt_auc, opt_epoch = 0, 0, 0, 0, 0, 0
     epoch_start = 0
 
     if args.fix_train_random:
@@ -212,7 +212,16 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
                 rowd = OrderedDict([ (str(k)+'-fold/'+str(i)+'-task/'+_k,_v) for _k, _v in rowd.items()])
                 wandb.log(rowd)
 
-        if auc_mean > opt_auc and epoch >= args.save_best_model_stage*args.num_epoch:
+        # if auc_mean > opt_auc and epoch >= args.save_best_model_stage*args.num_epoch:
+        #     opt_acc, opt_pre, opt_re, opt_fs, opt_auc, opt_epoch = acc_mean, pre_mean, re_mean, fs_mean, auc_mean, epoch
+        #     if not os.path.exists(args.model_path):
+        #         os.mkdir(args.model_path)
+        #     if not args.no_log:
+        #         best_pt = {
+        #             'model': model.state_dict(),
+        #         }
+        #         torch.save(best_pt, os.path.join(args.model_path, 'fold_{fold}_model_best_auc.pt'.format(fold=k)))
+        if re_mean > opt_re and epoch >= args.save_best_model_stage*args.num_epoch:
             opt_acc, opt_pre, opt_re, opt_fs, opt_auc, opt_epoch = acc_mean, pre_mean, re_mean, fs_mean, auc_mean, epoch
             if not os.path.exists(args.model_path):
                 os.mkdir(args.model_path)
@@ -220,7 +229,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
                 best_pt = {
                     'model': model.state_dict(),
                 }
-                torch.save(best_pt, os.path.join(args.model_path, 'fold_{fold}_model_best_auc.pt'.format(fold=k)))
+                torch.save(best_pt, os.path.join(args.model_path, 'fold_{fold}_model_best_recall.pt'.format(fold=k)))
         # if args.wandb:
         #     rowd = OrderedDict([
         #         ("val_best_acc",optimal_ac),
@@ -320,7 +329,7 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
             if args.loss == 'ce':
                 logit_loss = criterion(train_logits.view(batch_size,-1),label)
             elif args.loss == 'bce':
-                logit_loss = criterion(train_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1).float(),num_classes=args.num_classes[task_id]))
+                logit_loss = criterion(train_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=args.num_classes[task_id]).squeeze(1).float())
 
         train_loss = args.cls_alpha * logit_loss
 
@@ -384,9 +393,11 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
                     bag_logits[task_id].extend(torch.softmax(test_logits, dim=-1).cpu().numpy())
             # TODO have not updated            
             elif args.loss == 'bce':
-                
-                test_loss = criterion(test_logits[0].view(batch_size,-1),label.view(batch_size,-1).float())
-                bag_logits[task_id].append(torch.sigmoid(test_logits).cpu().squeeze().numpy())
+                test_loss = criterion(test_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=args.num_classes[task_id]).squeeze(1).float())
+                if args.num_classes[task_id] == 2:
+                    bag_logits[task_id].extend(torch.sigmoid(test_logits)[:,1].cpu().numpy())
+                else:
+                    bag_logits[task_id].extend(torch.sigmoid(test_logits).cpu().numpy())
 
             loss_cls_meter.update(test_loss,1)
     
@@ -409,7 +420,7 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
         # val mode detect early stopping
         # early stop
         if early_stopping is not None:
-            early_stopping(epoch,-auc_value,model)
+            early_stopping(epoch,-sum(recalls)/len(recalls),model)
             stop = early_stopping.early_stop
         else:
             stop = False
@@ -439,7 +450,7 @@ if __name__ == '__main__':
     parser.add_argument('--max_epoch', default=130, type=int, help='Number of max training epochs in the earlystopping [130]')
     parser.add_argument('--n_classes', default=5, type=int, help='Number of classes')
     parser.add_argument('--batch_size', default=1, type=int, help='Number of batch size')
-    parser.add_argument('--loss', default='ce', type=str, help='Classification Loss [ce, bce]')
+    parser.add_argument('--loss', default='bce', type=str, help='Classification Loss [ce, bce]')
     parser.add_argument('--opt', default='adam', type=str, help='Optimizer [adam, adamw]')
     parser.add_argument('--save_best_model_stage', default=0., type=float, help='See DTFD')
     parser.add_argument('--seed', default=2024, type=int, help='random number [2021]' )
@@ -468,8 +479,8 @@ if __name__ == '__main__':
     parser.add_argument('--shuffle_group', default=0, type=int, help='Number of the shuffle group')
 
     # Misc
+    parser.add_argument('--project', default='mtl-524', type=str, help='Project name of exp')
     parser.add_argument('--title', default='test', type=str, help='Title of exp')
-    parser.add_argument('--project', default='test-524', type=str, help='Project name of exp')
     parser.add_argument('--log_iter', default=100, type=int, help='Log Frequency')
     parser.add_argument('--amp', action='store_true', help='Automatic Mixed Precision Training')
     parser.add_argument('--wandb', action='store_true', help='Weight&Bias')
@@ -497,7 +508,7 @@ if __name__ == '__main__':
     args.fix_train_random = True
     args.num_task = 3
     args.num_classes = [5, 2, 4]
-    args.class_labels = [['NILM', 'ASC-US', 'ASC-H', 'LSIL', 'HSIL'], ['NILM', 'AGC'], ['NILM', 'T', 'M', 'BV']]
+    args.class_labels = [['NILM', 'ASC-US', 'LSIL', 'ASC-H', 'HSIL'], ['NILM', 'AGC'], ['NILM', 'T', 'M', 'BV']]
     # args.num_task = 3
     # args.num_classes = [2,2,4]
     # args.class_labels = [['NILM', 'POS'], ['NILM', 'AGC'], ['NILM', 'T', 'M', 'BV']]
