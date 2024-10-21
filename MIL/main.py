@@ -165,7 +165,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     else:
         early_stopping = None
 
-    optimal_ac, opt_pre, opt_re, opt_fs, opt_auc, opt_epoch = 0, 0, 0, 0, 0, 0
+    opt_ac, opt_pre, opt_re, opt_fs, opt_auc, opt_epoch = 0, 0, 0, 0, 0, 0
     epoch_start = 0
 
     if args.fix_train_random:
@@ -179,7 +179,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         optimizer.load_state_dict(ckp['optimizer'])
         scheduler.load_state_dict(ckp['lr_sche'])
         early_stopping.load_state_dict(ckp['early_stop'])
-        optimal_ac, opt_pre, opt_re, opt_fs, opt_auc,opt_epoch = ckp['val_best_metric']
+        opt_ac, opt_pre, opt_re, opt_fs, opt_auc,opt_epoch = ckp['val_best_metric']
         np.random.set_state(ckp['random']['np'])
         torch.random.set_rng_state(ckp['random']['torch'])
         random.setstate(ckp['random']['py'])
@@ -238,7 +238,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
                 torch.save(best_pt, os.path.join(args.model_path, 'fold_{fold}_model_best_recall.pt'.format(fold=k)))
         # if args.wandb:
         #     rowd = OrderedDict([
-        #         ("val_best_acc",optimal_ac),
+        #         ("val_best_acc",opt_ac),
         #         ("val_best_precesion",opt_pre),
         #         ("val_best_recall",opt_re),
         #         ("val_best_fscore",opt_fs),
@@ -298,7 +298,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         ]))
 
     if not args.no_log:
-        print('\n Optimal accuracy: %.3f ,Optimal auc: %.3f,Optimal precision: %.3f,Optimal recall: %.3f,Optimal fscore: %.3f' % (optimal_ac,opt_auc,opt_pre,opt_re,opt_fs))
+        print('\n Optimal accuracy: %.3f ,Optimal auc: %.3f,Optimal precision: %.3f,Optimal recall: %.3f,Optimal fscore: %.3f' % (opt_ac,opt_auc,opt_pre,opt_re,opt_fs))
     acs_fold, pre_fold, rec_fold, fs_fold, auc_fold = [], [], [], [], []
     acs_fold.append(accs)
     pre_fold.append(precisions)
@@ -338,6 +338,7 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
                 logit_loss = criterion(train_logits.view(batch_size,-1),label)
             elif args.loss in ['bce', 'softbce']:
                 logit_loss = criterion(train_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=args.num_classes[task_id]).squeeze(1).float())
+            assert not torch.isnan(logit_loss)
 
         train_loss = args.cls_alpha * logit_loss
 
@@ -370,6 +371,7 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
         train_loss_log = train_loss_log + train_loss.item()
 
     end = time.time()
+    
     train_loss_log = train_loss_log/len(loader)
     if not args.lr_supi and scheduler is not None:
         scheduler.step()
@@ -406,7 +408,7 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
                     bag_logits[task_id].extend(torch.sigmoid(test_logits)[:,1].cpu().numpy())
                 else:
                     bag_logits[task_id].extend(torch.sigmoid(test_logits).cpu().numpy())
-
+                        
             loss_cls_meter.update(test_loss,1)
     
     # save the log file

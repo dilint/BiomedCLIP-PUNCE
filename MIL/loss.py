@@ -24,6 +24,7 @@ class MySoftBCELoss(nn.Module):
         
     def forward(self, logits, target):
         pred = torch.sigmoid(logits)
+        pred = torch.clamp(pred, min=1e-7, max=1-1e-7)
         labels = torch.argmax(target, dim=1)
         output = []
         for i, label in enumerate(labels):
