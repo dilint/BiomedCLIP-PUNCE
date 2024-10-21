@@ -1,0 +1,10 @@
+label_path: /data/hjl/projects/BiomedCLIP-PUNCE/datatools/gc-2000/labels
+num_task: 3
+num_classes:
+  - 5
+  - 2
+  - 4
+class_labels:
+  - ['NILM', 'ASC-US', 'LSIL', 'ASC-H', 'HSIL']
+  - ['NILM', 'AGC']
+  - ['NILM', 'T', 'M', 'BV']

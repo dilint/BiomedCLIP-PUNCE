@@ -1,0 +1,7 @@
+num_task: 1
+num_classes:
+  - 9
+class_labels:
+  - ['NILM', 'ASC-US', 'LSIL', 'ASC-H', 'HSIL', 'AGC', 'T', 'M', 'BV']
+
+

@@ -6,16 +6,17 @@ from copy import deepcopy
 import torch.nn as nn
 from dataloader import *
 from model import *
+from loss import *
 from torch.utils.data import DataLoader, RandomSampler
 import argparse, os
 from torch.nn.functional import one_hot
 from contextlib import suppress
 import time
+import yaml
 
 from timm.utils import AverageMeter,dispatch_clip_grad
 from timm.models import  model_parameters
 from collections import OrderedDict
-
 from utils import *
 
 
@@ -140,6 +141,8 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         criterion = nn.BCEWithLogitsLoss()
     elif args.loss == 'ce':
         criterion = nn.CrossEntropyLoss()
+    elif args.loss == 'softbce':
+        criterion = MySoftBCELoss()
 
     # optimizer
     if args.opt == 'adamw':
@@ -202,16 +205,19 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         if args.wandb:
             for i in range(args.num_task):
                 rowd = OrderedDict([
-                    (f"val_acc",accs[i]),
-                    (f"val_precision",precisions[i]),
-                    (f"val_recall",recalls[i]),
-                    (f"val_fscore",f1s[i]),
-                    (f"val_auc",aucs[i]),
+                    ("val_acc",accs[i]),
+                    ("val_precision",precisions[i]),
+                    ("val_recall",recalls[i]),
+                    ("val_fscore",f1s[i]),
+                    ("val_auc",aucs[i]),
                     # ("val_loss",test_loss),
                 ])
                 rowd = OrderedDict([ (str(k)+'-fold/'+str(i)+'-task/'+_k,_v) for _k, _v in rowd.items()])
                 wandb.log(rowd)
-
+            wandb.log(OrderedDict([
+                ("val_loss", test_loss)
+            ]))
+            
         # if auc_mean > opt_auc and epoch >= args.save_best_model_stage*args.num_epoch:
         #     opt_acc, opt_pre, opt_re, opt_fs, opt_auc, opt_epoch = acc_mean, pre_mean, re_mean, fs_mean, auc_mean, epoch
         #     if not os.path.exists(args.model_path):
@@ -222,7 +228,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         #         }
         #         torch.save(best_pt, os.path.join(args.model_path, 'fold_{fold}_model_best_auc.pt'.format(fold=k)))
         if re_mean > opt_re and epoch >= args.save_best_model_stage*args.num_epoch:
-            opt_acc, opt_pre, opt_re, opt_fs, opt_auc, opt_epoch = acc_mean, pre_mean, re_mean, fs_mean, auc_mean, epoch
+            opt_ac, opt_pre, opt_re, opt_fs, opt_auc, opt_epoch = acc_mean, pre_mean, re_mean, fs_mean, auc_mean, epoch
             if not os.path.exists(args.model_path):
                 os.mkdir(args.model_path)
             if not args.no_log:
@@ -259,7 +265,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
             'early_stop': early_stopping.state_dict(),
             'random': random_state,
             'ckc_metric': [acs,pre,rec,fs,auc,te_auc,te_fs],
-            'val_best_metric': [opt_acc, opt_pre, opt_re, opt_fs, opt_auc,opt_epoch],
+            'val_best_metric': [opt_ac, opt_pre, opt_re, opt_fs, opt_auc,opt_epoch],
             'wandb_id': wandb.run.id if args.wandb else '',
         }
         if not args.no_log:
@@ -270,7 +276,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     
     # test
     if not args.no_log:
-        best_std = torch.load(os.path.join(args.model_path, 'fold_{fold}_model_best_auc.pt'.format(fold=k)))
+        best_std = torch.load(os.path.join(args.model_path, 'fold_{fold}_model_best_recall.pt'.format(fold=k)))
         info = model.load_state_dict(best_std['model'])
         print(info)
         
@@ -279,16 +285,18 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     if args.wandb:
         for i in range(args.num_task):
             rowd = OrderedDict([
-                ("test_acc",accs[i]),
-                ("test_precision",precisions[i]),
-                ("test_recall",recalls[i]),
-                ("test_fscore",f1s[i]),
-                ("test_auc",aucs[i]),
-                # ("val_loss",test_loss),
-            ])
+                ("test_acc",accs[i]), ("test_precision",precisions[i]), ("test_recall",recalls[i]), ("test_fscore",f1s[i]), ("test_auc",aucs[i])])
             rowd = OrderedDict([ (str(k)+'-fold/'+str(i)+'-task/'+_k,_v) for _k, _v in rowd.items()])
             wandb.log(rowd)
-        
+        wandb.log( OrderedDict([
+            ("test_acc_mean", sum(accs)/len(accs)),
+            ("test_auc_mean", sum(aucs)/len(aucs)),
+            ("test_precision_mean", sum(precisions)/len(precisions)),
+            ("test_recall_mean", sum(recalls)/len(recalls)),
+            ("test_fscore_mean", sum(f1s)/len(f1s)),
+            ("test_loss",test_loss),
+        ]))
+
     if not args.no_log:
         print('\n Optimal accuracy: %.3f ,Optimal auc: %.3f,Optimal precision: %.3f,Optimal recall: %.3f,Optimal fscore: %.3f' % (optimal_ac,opt_auc,opt_pre,opt_re,opt_fs))
     acs_fold, pre_fold, rec_fold, fs_fold, auc_fold = [], [], [], [], []
@@ -328,7 +336,7 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
 
             if args.loss == 'ce':
                 logit_loss = criterion(train_logits.view(batch_size,-1),label)
-            elif args.loss == 'bce':
+            elif args.loss in ['bce', 'softbce']:
                 logit_loss = criterion(train_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=args.num_classes[task_id]).squeeze(1).float())
 
         train_loss = args.cls_alpha * logit_loss
@@ -392,7 +400,7 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
                 else:
                     bag_logits[task_id].extend(torch.softmax(test_logits, dim=-1).cpu().numpy())
             # TODO have not updated            
-            elif args.loss == 'bce':
+            elif args.loss in ['bce', 'softbce']:
                 test_loss = criterion(test_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=args.num_classes[task_id]).squeeze(1).float())
                 if args.num_classes[task_id] == 2:
                     bag_logits[task_id].extend(torch.sigmoid(test_logits)[:,1].cpu().numpy())
@@ -432,7 +440,7 @@ if __name__ == '__main__':
     # Dataset 
     parser.add_argument('--datasets', default='gc_mtl', type=str, help='[camelyon16, tcga, ngc, gc, fnac, gc_mtl]')
     parser.add_argument('--dataset_root', default='/data/hjl/data/frozen-gc-features/gigapath', type=str, help='Dataset root path')
-    parser.add_argument('--label_path', default='/data/hjl/projects/BiomedCLIP-PUNCE/datatools/gc-2000/labels', type=str, help='label of train dataset')
+    parser.add_argument('--label_path', default='/data/hjl/projects/BiomedCLIP-PUNCE/datatools/gc-2000/onetask_labels', type=str, help='label of train dataset')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
     parser.add_argument('--fix_train_random', action='store_true', help='Fix random seed of Training')
     parser.add_argument('--val_ratio', default=0., type=float, help='Val-set ratio')
@@ -448,9 +456,8 @@ if __name__ == '__main__':
     parser.add_argument('--num_epoch', default=200, type=int, help='Number of total training epochs [200]')
     parser.add_argument('--early_stopping', action='store_false', help='Early stopping')
     parser.add_argument('--max_epoch', default=130, type=int, help='Number of max training epochs in the earlystopping [130]')
-    parser.add_argument('--n_classes', default=5, type=int, help='Number of classes')
     parser.add_argument('--batch_size', default=1, type=int, help='Number of batch size')
-    parser.add_argument('--loss', default='bce', type=str, help='Classification Loss [ce, bce]')
+    parser.add_argument('--loss', default='softbce', type=str, help='Classification Loss [ce, bce, softbce]')
     parser.add_argument('--opt', default='adam', type=str, help='Optimizer [adam, adamw]')
     parser.add_argument('--save_best_model_stage', default=0., type=float, help='See DTFD')
     parser.add_argument('--seed', default=2024, type=int, help='random number [2021]' )
@@ -460,16 +467,12 @@ if __name__ == '__main__':
     parser.add_argument('--weight_decay', default=1e-5, type=float, help='Weight decay [5e-3]')
     parser.add_argument('--accumulation_steps', default=1, type=int, help='Gradient accumulate')
     parser.add_argument('--clip_grad', default=.0, type=float, help='Gradient clip')
-    parser.add_argument('--always_test', action='store_true', help='Test model in the training phase')
 
     # Model
-    # Other models
-    parser.add_argument('--ds_average', action='store_true', help='DSMIL hyperparameter')
     # mil meathod
     parser.add_argument('--mil_method', default='abmil', type=str, help='Model name [abmil, transmil, dsmil, clam]')
     parser.add_argument('--act', default='relu', type=str, help='Activation func in the projection head [gelu,relu]')
     parser.add_argument('--dropout', default=0.25, type=float, help='Dropout in the projection head')
-    parser.add_argument('--n_heads', default=8, type=int, help='Number of head in the MSA')
     parser.add_argument('--da_act', default='relu', type=str, help='Activation func in the DAttention [gelu,relu]')
     parser.add_argument('--input_dim', default=1536, type=int, help='The dimention of patch feature')
 
@@ -487,8 +490,21 @@ if __name__ == '__main__':
     parser.add_argument('--num_workers', default=2, type=int, help='Number of workers in the dataloader')
     parser.add_argument('--no_log', action='store_true', help='Without log')
     parser.add_argument('--model_path', type=str, default='/data/hjl/projects/BiomedCLIP-PUNCE/MIL/output-model', help='Output path')
-
+    parser.add_argument('--task_config', type=str, default='/data/hjl/projects/BiomedCLIP-PUNCE/MIL/configs/oh_5.yaml', help='Task config path')
+    
     args = parser.parse_args()
+    
+    with open(args.task_config, 'r') as f:
+        task_config = yaml.load(f.read(), Loader=yaml.FullLoader)
+        args.num_task = task_config['num_task']
+        args.num_classes = task_config['num_classes']
+        args.class_labels = task_config['class_labels']
+        args.label_path = task_config['label_path']
+        f.close()
+    # args.num_task = 3
+    # args.num_classes = [2,2,4]
+    # args.class_labels = [['NILM', 'POS'], ['NILM', 'AGC'], ['NILM', 'T', 'M', 'BV']]
+    
     if args.train_val:
         args.train_label_path = os.path.join(args.label_path, 'train_val.csv')
         args.val_label_path = os.path.join(args.label_path, 'test_label.csv')
@@ -506,12 +522,8 @@ if __name__ == '__main__':
 
     args.fix_loader_random = True
     args.fix_train_random = True
-    args.num_task = 3
-    args.num_classes = [5, 2, 4]
-    args.class_labels = [['NILM', 'ASC-US', 'LSIL', 'ASC-H', 'HSIL'], ['NILM', 'AGC'], ['NILM', 'T', 'M', 'BV']]
-    # args.num_task = 3
-    # args.num_classes = [2,2,4]
-    # args.class_labels = [['NILM', 'POS'], ['NILM', 'AGC'], ['NILM', 'T', 'M', 'BV']]
+    
+    
     
     if args.wandb:
         wandb.login()
