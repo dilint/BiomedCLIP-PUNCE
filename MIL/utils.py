@@ -3,6 +3,8 @@ from sklearn.metrics import precision_recall_fscore_support
 from sklearn.metrics import f1_score,recall_score, roc_curve
 from sklearn.metrics import accuracy_score, precision_score, roc_auc_score
 from torchmetrics.classification import BinarySpecificity, BinaryRecall
+from prettytable import PrettyTable
+
 
 import torch
 import os
@@ -149,10 +151,19 @@ def multi_class_scores(bag_labels, bag_logits):
         roc_auc[i] = roc_auc_score(bag_labels_one_hot[:, i], bag_logits[:, i])
     roc_auc = list(roc_auc.values())
     roc_auc_macro = np.mean(roc_auc)
-    roc_auc_macro
     return roc_auc_macro, accuracy, recall, precision, fscore
 
+def two_class_scores(bag_labels, bag_logits):
+    bag_labels = [1 if i != 0 else 0 for i in bag_labels]
+    bag_labels = np.array(bag_labels)
+    bag_pred = np.argmax(np.array(bag_logits), axis=-1)
+    bag_pred = np.array([1 if i != 0 else 0 for i in bag_pred])
 
+    accuracy = accuracy_score(bag_labels, bag_pred)
+    print(f"Two class Acc:{accuracy}")
+    confusion_matrix(bag_labels, bag_pred, ['NILM', 'POS'])
+    
+        
 def confusion_matrix(bag_labels, bag_logits, class_labels):
     if isinstance(bag_logits[0], np.ndarray):
         y_true, y_pred = bag_labels, np.argmax(np.array(bag_logits), axis=-1)
@@ -172,16 +183,13 @@ def confusion_matrix(bag_labels, bag_logits, class_labels):
     total = sum(row_totals)
 
     # 重新格式化混淆矩阵，确保第一行包含类别名称
-    formatted_cm_with_labels = "实际\预测\t|\t" + "\t|\t".join(map(str, class_labels)) + "\t|\t总计\n"
-    formatted_cm_with_labels += "-" * ((len(class_labels)+2) * 16) + "\n"
+    print(f"Confusion Matrix for {len(bag_labels)} data")
+    table = PrettyTable()
+    table.field_names = ["实际\预测"] + class_labels + ["总计"]
     for i, label in enumerate(class_labels):
-        formatted_cm_with_labels += label + "\t\t|\t"
-        for j in range(num_classes):
-            formatted_cm_with_labels += str(cm_manual[i][j]) + "\t|\t"
-        formatted_cm_with_labels += str(row_totals[i]) + "\n"
-        formatted_cm_with_labels += "-" * ((len(class_labels)+2) * 16) + "\n"
-    formatted_cm_with_labels += "总计\t\t|\t" + "\t|\t".join(map(str, col_totals)) + "\t|\t" + str(total) + "\n"
-    print(formatted_cm_with_labels)
+        table.add_row([label] + list(map(str, cm_manual[i])) + [row_totals[i]])
+    table.add_row(["总计"] + list(map(str, col_totals)) + [total])
+    print(table)
     
 
 def cosine_scheduler(base_value, final_value, epochs, niter_per_ep, warmup_epochs=0, start_warmup_value=0):

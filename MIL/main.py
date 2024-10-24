@@ -142,7 +142,9 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     elif args.loss == 'ce':
         criterion = nn.CrossEntropyLoss()
     elif args.loss == 'softbce':
-        criterion = MySoftBCELoss()
+        criterion = MySoftBCELoss(neg_weight=args.neg_weight)
+    elif args.loss == 'ranking':
+        criterion = RankingAndSoftBCELoss(neg_weight=args.neg_weight)
 
     # optimizer
     if args.opt == 'adamw':
@@ -192,6 +194,24 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     for epoch in range(epoch_start, args.num_epoch):
         train_loss,start,end = train_loop(args,model,train_loader,optimizer,device,amp_autocast,criterion,scheduler,k,epoch)
         train_time_meter.update(end-start)
+        
+        # train_set acc
+        accs, aucs, precisions, recalls, f1s, test_loss = val_loop(args,model,train_loader,device,criterion,early_stopping,epoch,test_mode=True)
+        if args.wandb:
+            for i in range(args.num_task):
+                rowd = OrderedDict([
+                    ("train_acc",accs[i]), ("train_precision",precisions[i]), ("train_recall",recalls[i]), ("train_fscore",f1s[i]), ("train_auc",aucs[i])])
+                rowd = OrderedDict([ (str(k)+'-fold/'+str(i)+'-task/'+_k,_v) for _k, _v in rowd.items()])
+                wandb.log(rowd)
+            wandb.log( OrderedDict([
+                ("train_acc_mean", sum(accs)/len(accs)),
+                ("train_auc_mean", sum(aucs)/len(aucs)),
+                ("train_precision_mean", sum(precisions)/len(precisions)),
+                ("train_recall_mean", sum(recalls)/len(recalls)),
+                ("train_fscore_mean", sum(f1s)/len(f1s)),
+                ("train_loss",test_loss),
+            ]))
+        
         stop, accs, aucs, precisions, recalls, f1s, test_loss = val_loop(args,model,val_loader,device,criterion,early_stopping,epoch)
 
         if not args.no_log:
@@ -210,6 +230,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
                     ("val_recall",recalls[i]),
                     ("val_fscore",f1s[i]),
                     ("val_auc",aucs[i]),
+                    ("epoch", epoch)
                     # ("val_loss",test_loss),
                 ])
                 rowd = OrderedDict([ (str(k)+'-fold/'+str(i)+'-task/'+_k,_v) for _k, _v in rowd.items()])
@@ -273,7 +294,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
 
         if stop:
             break
-    
+
     # test
     if not args.no_log:
         best_std = torch.load(os.path.join(args.model_path, 'fold_{fold}_model_best_recall.pt'.format(fold=k)))
@@ -336,11 +357,11 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
 
             if args.loss == 'ce':
                 logit_loss = criterion(train_logits.view(batch_size,-1),label)
-            elif args.loss in ['bce', 'softbce']:
+            elif args.loss in ['bce', 'softbce', 'ranking']:
                 logit_loss = criterion(train_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=args.num_classes[task_id]).squeeze(1).float())
             assert not torch.isnan(logit_loss)
 
-        train_loss = args.cls_alpha * logit_loss
+        train_loss = logit_loss
 
         train_loss = train_loss / args.accumulation_steps
         if args.clip_grad > 0.:
@@ -360,6 +381,7 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
             lrl = [param_group['lr'] for param_group in optimizer.param_groups]
             lr = sum(lrl) / len(lrl)
             rowd = OrderedDict([
+                ('train_loss', train_loss),
                 ('lr',lr),
             ])
             if not args.no_log:
@@ -402,7 +424,7 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
                 else:
                     bag_logits[task_id].extend(torch.softmax(test_logits, dim=-1).cpu().numpy())
             # TODO have not updated            
-            elif args.loss in ['bce', 'softbce']:
+            elif args.loss in ['bce', 'softbce', 'ranking']:
                 test_loss = criterion(test_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=args.num_classes[task_id]).squeeze(1).float())
                 if args.num_classes[task_id] == 2:
                     bag_logits[task_id].extend(torch.sigmoid(test_logits)[:,1].cpu().numpy())
@@ -414,6 +436,7 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
     # save the log file
     accs, aucs, precisions, recalls, f1s = [], [], [], [], []
     for i in range(args.num_task):
+        two_class_scores(bag_labels[i], bag_logits[i])
         confusion_matrix(bag_labels[i], bag_logits[i], args.class_labels[i])
         if args.num_classes[i] == 2:
             accuracy, auc_value, precision, recall, fscore = five_scores(bag_labels[i], bag_logits[i])
@@ -453,13 +476,15 @@ if __name__ == '__main__':
     parser.add_argument('--train_val', action='store_true', help='use train and val set to train the model')
 
     # Train
-    parser.add_argument('--cls_alpha', default=1.0, type=float, help='Main loss alpha')
     parser.add_argument('--auto_resume', action='store_true', help='Resume from the auto-saved checkpoint')
     parser.add_argument('--num_epoch', default=200, type=int, help='Number of total training epochs [200]')
     parser.add_argument('--early_stopping', action='store_false', help='Early stopping')
     parser.add_argument('--max_epoch', default=130, type=int, help='Number of max training epochs in the earlystopping [130]')
     parser.add_argument('--batch_size', default=1, type=int, help='Number of batch size')
-    parser.add_argument('--loss', default='softbce', type=str, help='Classification Loss [ce, bce, softbce]')
+    
+    # Loss
+    parser.add_argument('--loss', default='ranking', type=str, help='Classification Loss [ce, bce, softbce, ranking]')
+    parser.add_argument('--neg_weight', default=1.0, type=float, help='Weight for positive sample in SoftBCE')
     parser.add_argument('--opt', default='adam', type=str, help='Optimizer [adam, adamw]')
     parser.add_argument('--save_best_model_stage', default=0., type=float, help='See DTFD')
     parser.add_argument('--seed', default=2024, type=int, help='random number [2021]' )
@@ -524,7 +549,6 @@ if __name__ == '__main__':
 
     args.fix_loader_random = True
     args.fix_train_random = True
-    
     
     
     if args.wandb:
