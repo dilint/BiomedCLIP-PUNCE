@@ -48,9 +48,10 @@ class MySoftBCELoss(nn.Module):
         return loss
 
 class RankingLoss(nn.Module):
-    def __init__(self, reduction='mean'):
+    def __init__(self, reduction='mean', neg_margin=0):
         super(RankingLoss, self).__init__()
         self.reduction = reduction
+        self.neg_margin = neg_margin
 
 
     def forward(self, logits, target):
@@ -73,7 +74,7 @@ class RankingLoss(nn.Module):
                     x_neg = logits[i][0].unsqueeze(0)
                     y = torch.tensor([1], device=logits.device)
                     one_loss += losses[abs(label - j)](x1, x2, y)
-                one_loss += losses[-1](x1, x_neg, y)
+                one_loss += self.neg_margin * losses[-1](x1, x_neg, y)
                 output.append(one_loss)
         output = torch.stack(output)
         if self.reduction == 'mean':
@@ -85,10 +86,10 @@ class RankingLoss(nn.Module):
         return loss
 
 class RankingAndSoftBCELoss(nn.Module):
-    def __init__(self, reduction='mean', neg_weight=1., weight_ranking=1., weight_bce=1.):
+    def __init__(self, reduction='mean', neg_weight=1., weight_ranking=1., weight_bce=1.,neg_margin=0):
         super(RankingAndSoftBCELoss, self).__init__()
         self.bce_loss = MySoftBCELoss(reduction=reduction, neg_weight=neg_weight)
-        self.ranking_loss = RankingLoss(reduction=reduction)
+        self.ranking_loss = RankingLoss(reduction=reduction, neg_margin=neg_margin)
         self.weight_ranking = weight_ranking
         self.weight_bce = weight_bce
 

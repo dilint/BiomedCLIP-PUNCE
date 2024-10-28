@@ -5,7 +5,6 @@ from sklearn.metrics import accuracy_score, precision_score, roc_auc_score
 from torchmetrics.classification import BinarySpecificity, BinaryRecall
 from prettytable import PrettyTable
 
-
 import torch
 import os
 
@@ -267,3 +266,4 @@ class EarlyStopping:
             print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
         #torch.save(model.state_dict(), ckpt_name)
         self.val_loss_min = val_loss
+
