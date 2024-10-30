@@ -300,6 +300,7 @@ class NGCDatasetInfer(Dataset):
     
 
 # Copyright (c) OpenMMLab. All rights reserved.
+# 修改自mmengine的ClassBalancedDataset类
 class ClassBalancedDataset(Dataset):
     """A wrapper of class balanced dataset.
 

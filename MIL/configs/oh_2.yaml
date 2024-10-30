@@ -1,0 +1,8 @@
+label_path: /data/hjl/projects/BiomedCLIP-PUNCE/datatools/gc-2000/onetask_2_labels
+num_task: 1
+num_classes:
+  - 2
+class_labels:
+  - ['NILM', 'POS']
+
+

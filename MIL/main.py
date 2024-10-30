@@ -4,6 +4,7 @@ import wandb
 import numpy as np
 from copy import deepcopy
 import torch.nn as nn
+import pandas as pd
 from dataloader import *
 from model import *
 from loss import *
@@ -110,7 +111,6 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         train_set = C16Dataset(train_p[k],train_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,is_train=True)
         test_set = C16Dataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
         val_set = C16Dataset(val_p[k],val_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
-    
     
     if args.datasets.lower() == 'camelyon16':
         if args.val_ratio == 0.:
@@ -252,7 +252,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         #             'model': model.state_dict(),
         #         }
         #         torch.save(best_pt, os.path.join(args.model_path, 'fold_{fold}_model_best_auc.pt'.format(fold=k)))
-        if re_mean > opt_re and epoch >= args.save_best_model_stage*args.num_epoch:
+        if fs_mean > opt_re and epoch >= args.save_best_model_stage*args.num_epoch:
             opt_ac, opt_pre, opt_re, opt_fs, opt_auc, opt_epoch = acc_mean, pre_mean, re_mean, fs_mean, auc_mean, epoch
             if not os.path.exists(args.model_path):
                 os.mkdir(args.model_path)
@@ -307,20 +307,26 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         
     accs, aucs, precisions, recalls, f1s, test_loss = val_loop(args,model,test_loader,device,criterion,early_stopping,epoch,test_mode=True)
     
+    res = OrderedDict([
+            ("test_auc_mean", sum(aucs)/len(aucs)),
+            ("test_recall_mean", sum(recalls)/len(recalls)),
+            ("test_precision_mean", sum(precisions)/len(precisions)),
+            ("test_acc_mean", sum(accs)/len(accs)),
+            ("test_fscore_mean", sum(f1s)/len(f1s)),
+            ("test_loss",test_loss),
+        ])
+    df = pd.DataFrame(res, index=[1])
+    df.to_excel(os.path.join(args.model_path, 'evaluation.xlsx'), index=False)
+    
     if args.wandb:
         for i in range(args.num_task):
             rowd = OrderedDict([
                 ("test_acc",accs[i]), ("test_precision",precisions[i]), ("test_recall",recalls[i]), ("test_fscore",f1s[i]), ("test_auc",aucs[i])])
             rowd = OrderedDict([ (str(k)+'-fold/'+str(i)+'-task/'+_k,_v) for _k, _v in rowd.items()])
             wandb.log(rowd)
-        wandb.log( OrderedDict([
-            ("test_acc_mean", sum(accs)/len(accs)),
-            ("test_auc_mean", sum(aucs)/len(aucs)),
-            ("test_precision_mean", sum(precisions)/len(precisions)),
-            ("test_recall_mean", sum(recalls)/len(recalls)),
-            ("test_fscore_mean", sum(f1s)/len(f1s)),
-            ("test_loss",test_loss),
-        ]))
+        
+        wandb.log(res)
+        
 
     if not args.no_log:
         print('\n Optimal accuracy: %.3f ,Optimal auc: %.3f,Optimal precision: %.3f,Optimal recall: %.3f,Optimal fscore: %.3f' % (opt_ac,opt_auc,opt_pre,opt_re,opt_fs))
@@ -440,11 +446,11 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
     # save the log file
     accs, aucs, precisions, recalls, f1s = [], [], [], [], []
     for i in range(args.num_task):
-        two_class_scores(bag_labels[i], bag_logits[i])
         confusion_matrix(bag_labels[i], bag_logits[i], args.class_labels[i])
         if args.num_classes[i] == 2:
             accuracy, auc_value, precision, recall, fscore = five_scores(bag_labels[i], bag_logits[i])
         else:
+            two_class_scores(bag_labels[i], bag_logits[i])
             auc_value, accuracy, recall, precision, fscore = multi_class_scores(bag_labels[i], bag_logits[i])
         accs.append(accuracy)
         aucs.append(auc_value)
@@ -470,7 +476,7 @@ if __name__ == '__main__':
     parser.add_argument('--datasets', default='gc_mtl', type=str, help='[camelyon16, tcga, ngc, gc, fnac, gc_mtl]')
     parser.add_argument('--dataset_root', default='/data/hjl/data/frozen-gc-features/gigapath', type=str, help='Dataset root path')
     parser.add_argument('--label_path', default='/data/hjl/projects/BiomedCLIP-PUNCE/datatools/gc-2000/onetask_labels', type=str, help='label of train dataset')
-    parser.add_argument('--imbalance_sampler', default=1, type=float, help='if use imbalance_sampler')
+    parser.add_argument('--imbalance_sampler', default=0, type=float, help='if use imbalance_sampler')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
     parser.add_argument('--fix_train_random', action='store_true', help='Fix random seed of Training')
     parser.add_argument('--val_ratio', default=0., type=float, help='Val-set ratio')
@@ -482,7 +488,7 @@ if __name__ == '__main__':
 
     # Train
     parser.add_argument('--auto_resume', action='store_true', help='Resume from the auto-saved checkpoint')
-    parser.add_argument('--num_epoch', default=200, type=int, help='Number of total training epochs [200]')
+    parser.add_argument('--num_epoch', default=2, type=int, help='Number of total training epochs [200]')
     parser.add_argument('--early_stopping', action='store_false', help='Early stopping')
     parser.add_argument('--max_epoch', default=130, type=int, help='Number of max training epochs in the earlystopping [130]')
     parser.add_argument('--batch_size', default=1, type=int, help='Number of batch size')

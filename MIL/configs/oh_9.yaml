@@ -1,3 +1,4 @@
+label_path: /data/hjl/projects/BiomedCLIP-PUNCE/datatools/gc-2000/onetask_9_labels
 num_task: 1
 num_classes:
   - 9
