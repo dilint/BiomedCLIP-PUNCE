@@ -204,7 +204,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
             for i in range(args.num_task):
                 rowd = OrderedDict([
                     ("train_acc",accs[i]), ("train_precision",precisions[i]), ("train_recall",recalls[i]), ("train_fscore",f1s[i]), ("train_auc",aucs[i])])
-                rowd = OrderedDict([ (str(k)+'-fold/'+str(i)+'-task/'+_k,_v) for _k, _v in rowd.items()]+[('epoch',epoch)])
+                rowd = OrderedDict([ (str(i)+'-task/'+_k,_v) for _k, _v in rowd.items()]+[('epoch',epoch)])
                 wandb.log(rowd)
             wandb.log( OrderedDict([
                 ("train_acc_mean", sum(accs)/len(accs)),
@@ -236,7 +236,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
                     ("val_auc",aucs[i]),
                     # ("val_loss",test_loss),
                 ])
-                rowd = OrderedDict([ (str(k)+'-fold/'+str(i)+'-task/'+_k,_v) for _k, _v in rowd.items()]+[('epoch',epoch)])
+                rowd = OrderedDict([ (str(i)+'-task/'+_k,_v) for _k, _v in rowd.items()]+[('epoch',epoch)])
                 wandb.log(rowd)
             wandb.log(OrderedDict([
                 ("val_loss", test_loss),
@@ -252,8 +252,8 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         #             'model': model.state_dict(),
         #         }
         #         torch.save(best_pt, os.path.join(args.model_path, 'fold_{fold}_model_best_auc.pt'.format(fold=k)))
-        if fs_mean > opt_re and epoch >= args.save_best_model_stage*args.num_epoch:
-            opt_ac, opt_pre, opt_re, opt_fs, opt_auc, opt_epoch = acc_mean, pre_mean, re_mean, fs_mean, auc_mean, epoch
+        if re_mean > opt_re and epoch >= args.save_best_model_stage*args.num_epoch:
+            opt_ac, opt_pre, opt_re, opt_fs, opt_auc, opt_epoch = acc_mean, pre_mean, re_mean, re_mean, auc_mean, epoch
             if not os.path.exists(args.model_path):
                 os.mkdir(args.model_path)
             if not args.no_log:
@@ -322,9 +322,8 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         for i in range(args.num_task):
             rowd = OrderedDict([
                 ("test_acc",accs[i]), ("test_precision",precisions[i]), ("test_recall",recalls[i]), ("test_fscore",f1s[i]), ("test_auc",aucs[i])])
-            rowd = OrderedDict([ (str(k)+'-fold/'+str(i)+'-task/'+_k,_v) for _k, _v in rowd.items()])
+            rowd = OrderedDict([ (str(i)+'-task/'+_k,_v) for _k, _v in rowd.items()])
             wandb.log(rowd)
-        
         wandb.log(res)
         
 
@@ -396,7 +395,7 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
             ])
             if not args.no_log:
                 print('[{}/{}] logit_loss:{}'.format(i,len(loader)-1,loss_cls_meter.avg))
-            rowd = OrderedDict([ (str(k)+'-fold/'+_k,_v) for _k, _v in rowd.items()])
+            rowd = OrderedDict([ (_k,_v) for _k, _v in rowd.items()])
             if args.wandb:
                 wandb.log(rowd)
 
@@ -474,8 +473,8 @@ if __name__ == '__main__':
 
     # Dataset 
     parser.add_argument('--datasets', default='gc_mtl', type=str, help='[camelyon16, tcga, ngc, gc, fnac, gc_mtl]')
-    parser.add_argument('--dataset_root', default='/data/hjl/data/frozen-gc-features/gigapath', type=str, help='Dataset root path')
-    parser.add_argument('--label_path', default='/data/hjl/projects/BiomedCLIP-PUNCE/datatools/gc-2000/onetask_labels', type=str, help='label of train dataset')
+    parser.add_argument('--dataset_root', default='/home1/wsi/gc-all-features/mul-test/gigapath1', type=str, help='Dataset root path')
+    parser.add_argument('--label_path', default='../datatools/gc-2000/onetask_labels', type=str, help='label of train dataset')
     parser.add_argument('--imbalance_sampler', default=0, type=float, help='if use imbalance_sampler')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
     parser.add_argument('--fix_train_random', action='store_true', help='Fix random seed of Training')
@@ -484,18 +483,18 @@ if __name__ == '__main__':
     parser.add_argument('--cv_fold', default=1, type=int, help='Number of cross validation fold [3]')
     parser.add_argument('--persistence', action='store_true', help='Load data into memory') 
     parser.add_argument('--same_psize', default=0, type=int, help='Keep the same size of all patches [0]')
-    parser.add_argument('--train_val', action='store_true', help='use train and val set to train the model')
+    parser.add_argument('--train_val', default=1, type=int, help='use train and val set to train the model')
 
     # Train
     parser.add_argument('--auto_resume', action='store_true', help='Resume from the auto-saved checkpoint')
-    parser.add_argument('--num_epoch', default=2, type=int, help='Number of total training epochs [200]')
+    parser.add_argument('--num_epoch', default=20, type=int, help='Number of total training epochs [200]')
     parser.add_argument('--early_stopping', action='store_false', help='Early stopping')
     parser.add_argument('--max_epoch', default=130, type=int, help='Number of max training epochs in the earlystopping [130]')
     parser.add_argument('--batch_size', default=1, type=int, help='Number of batch size')
     
     # Loss
-    parser.add_argument('--loss', default='ranking', type=str, help='Classification Loss [ce, bce, softbce, ranking]')
-    parser.add_argument('--neg_weight', default=1.0, type=float, help='Weight for positive sample in SoftBCE')
+    parser.add_argument('--loss', default='ce', type=str, help='Classification Loss [ce, bce, softbce, ranking]')
+    parser.add_argument('--neg_weight', default=0.0, type=float, help='Weight for positive sample in SoftBCE')
     parser.add_argument('--neg_margin', default=0, type=float, help='if use neg_margin in ranking loss')
     parser.add_argument('--opt', default='adam', type=str, help='Optimizer [adam, adamw]')
     parser.add_argument('--save_best_model_stage', default=0., type=float, help='See DTFD')
@@ -528,8 +527,8 @@ if __name__ == '__main__':
     parser.add_argument('--wandb', action='store_true', help='Weight&Bias')
     parser.add_argument('--num_workers', default=2, type=int, help='Number of workers in the dataloader')
     parser.add_argument('--no_log', action='store_true', help='Without log')
-    parser.add_argument('--model_path', type=str, default='/data/hjl/projects/BiomedCLIP-PUNCE/MIL/output-model', help='Output path')
-    parser.add_argument('--task_config', type=str, default='/data/hjl/projects/BiomedCLIP-PUNCE/MIL/configs/oh_5.yaml', help='Task config path')
+    parser.add_argument('--model_path', type=str, default='./output-model', help='Output path')
+    parser.add_argument('--task_config', type=str, default='./configs/oh_5.yaml', help='Task config path')
     
     args = parser.parse_args()
     
