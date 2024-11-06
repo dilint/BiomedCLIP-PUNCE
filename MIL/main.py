@@ -363,7 +363,8 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
                 bag = group_shuffle(bag,args.shuffle_group)
            
             train_logits = model(bag, task_id)
-
+            task_id = task_id[0]
+            
             if args.loss == 'ce':
                 logit_loss = criterion(train_logits.view(batch_size,-1),label)
             elif args.loss in ['bce', 'softbce', 'ranking']:
@@ -421,10 +422,11 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
         for i, data in enumerate(loader):
             
             bag, label, task_id = data[0].to(device), data[1].to(device), data[2] # b*n*1024
-            bag_labels[task_id].append(data[1].item())
-            batch_size=bag.size(0)
 
             test_logits = model(bag, task_id)
+            task_id = task_id[0]
+            batch_size=bag.size(0)
+            bag_labels[task_id].extend(data[1])
             
             if args.loss == 'ce':
                 test_loss = criterion(test_logits.view(batch_size,-1),label)    
@@ -473,7 +475,7 @@ if __name__ == '__main__':
 
     # Dataset 
     parser.add_argument('--datasets', default='gc_mtl', type=str, help='[camelyon16, tcga, ngc, gc, fnac, gc_mtl]')
-    parser.add_argument('--dataset_root', default='/home1/wsi/gc-all-features/mul-test/gigapath1', type=str, help='Dataset root path')
+    parser.add_argument('--dataset_root', default='/home1/wsi/gc-all-features/frozen/gigapath-longnet', type=str, help='Dataset root path')
     parser.add_argument('--label_path', default='../datatools/gc-2000/onetask_labels', type=str, help='label of train dataset')
     parser.add_argument('--imbalance_sampler', default=0, type=float, help='if use imbalance_sampler')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
@@ -487,19 +489,19 @@ if __name__ == '__main__':
 
     # Train
     parser.add_argument('--auto_resume', action='store_true', help='Resume from the auto-saved checkpoint')
-    parser.add_argument('--num_epoch', default=20, type=int, help='Number of total training epochs [200]')
+    parser.add_argument('--num_epoch', default=200, type=int, help='Number of total training epochs [200]')
     parser.add_argument('--early_stopping', action='store_false', help='Early stopping')
     parser.add_argument('--max_epoch', default=130, type=int, help='Number of max training epochs in the earlystopping [130]')
-    parser.add_argument('--batch_size', default=1, type=int, help='Number of batch size')
+    parser.add_argument('--batch_size', default=32, type=int, help='Number of batch size')
     
     # Loss
-    parser.add_argument('--loss', default='ce', type=str, help='Classification Loss [ce, bce, softbce, ranking]')
+    parser.add_argument('--loss', default='ranking', type=str, help='Classification Loss [ce, bce, softbce, ranking]')
     parser.add_argument('--neg_weight', default=0.0, type=float, help='Weight for positive sample in SoftBCE')
     parser.add_argument('--neg_margin', default=0, type=float, help='if use neg_margin in ranking loss')
     parser.add_argument('--opt', default='adam', type=str, help='Optimizer [adam, adamw]')
     parser.add_argument('--save_best_model_stage', default=0., type=float, help='See DTFD')
     parser.add_argument('--seed', default=2024, type=int, help='random number [2021]' )
-    parser.add_argument('--lr', default=2e-4, type=float, help='Initial learning rate [0.0002]')
+    parser.add_argument('--lr', default=2e-3, type=float, help='Initial learning rate [0.0002]')
     parser.add_argument('--lr_sche', default='cosine', type=str, help='Deacy of learning rate [cosine, step, const]')
     parser.add_argument('--lr_supi', action='store_true', help='LR scheduler update per iter')
     parser.add_argument('--weight_decay', default=1e-5, type=float, help='Weight decay [5e-3]')
@@ -508,11 +510,11 @@ if __name__ == '__main__':
 
     # Model
     # mil meathod
-    parser.add_argument('--mil_method', default='abmil', type=str, help='Model name [abmil, transmil, dsmil, clam]')
+    parser.add_argument('--mil_method', default='linear', type=str, help='Model name [abmil, transmil, dsmil, clam, linear]')
     parser.add_argument('--act', default='relu', type=str, help='Activation func in the projection head [gelu,relu]')
     parser.add_argument('--dropout', default=0.25, type=float, help='Dropout in the projection head')
     parser.add_argument('--da_act', default='relu', type=str, help='Activation func in the DAttention [gelu,relu]')
-    parser.add_argument('--input_dim', default=1536, type=int, help='The dimention of patch feature')
+    parser.add_argument('--input_dim', default=768, type=int, help='The dimention of patch feature')
 
     # Shuffle
     parser.add_argument('--patch_shuffle', action='store_true', help='2-D group shuffle')
