@@ -31,8 +31,11 @@ class GcDataset(Dataset):
         features = torch.load(wsi_path)
         if os.path.exists(os.path.join(self.img_root, 'NILM', self.wsi_names[idx])):
             wsi_img_path = os.path.join(self.img_root, 'NILM', self.wsi_names[idx])
-        else:
+        elif os.path.exists(os.path.join(self.img_root, 'POS', self.wsi_names[idx])):
             wsi_img_path = os.path.join(self.img_root, 'POS', self.wsi_names[idx])
+        else:
+            wsi_img_path = os.path.join(self.img_root, self.wsi_names[idx])
+            
         patch_files = glob.glob(os.path.join(wsi_img_path, '*.jpg'))
         patch_files = sorted(patch_files, key=lambda x: (int(os.path.basename(x).split(".")[0].split("_")[0]), 
         int(os.path.basename(x).split(".")[0].split("_")[1])))
@@ -48,11 +51,15 @@ class GcDataset(Dataset):
 if __name__ == '__main__':
     # parser = argparse.ArgumentParser(description='MIL Training Script')
     
-    label_path = '../datatools/gc/labels/all_label.csv'
-    label_path = '/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc/labels/all_label.csv'
-    img_root = '/home1/wsi/gc-224'
-    feature_root = '/home1/wsi/gc-all-features/frozen/gigapath1'
-    output_root = '/home1/wsi/gc-all-features/frozen/gigapath-longnet'
+    # label_path = '../datatools/gc/labels/all_label.csv'
+    # label_path = '/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc/labels/all_label.csv'
+    # img_root = '/home1/wsi/gc-224'
+    # feature_root = '/home1/wsi/gc-all-features/frozen/gigapath1'
+    # output_root = '/home1/wsi/gc-all-features/frozen/gigapath-longnet'
+    label_path = '/data/hjl/projects/BiomedCLIP-PUNCE/datatools/gc-2000/labels/all_label_pure.csv'
+    img_root = '/data/hjl/data/TCTGC-2000'
+    feature_root = '/data/hjl/data/frozen-gc-features/gigapath'
+    output_root = '/data/hjl/data/frozen-gc-features/gigapath-longnet'
     if not os.path.exists(output_root):
             os.makedirs(output_root)
     wsi_names = []
