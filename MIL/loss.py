@@ -33,7 +33,7 @@ class MySoftBCELoss(nn.Module):
         for i, label in enumerate(labels):
             if label == 0:
                 one_loss = target[i] * torch.log(pred[i]) + (1 - target[i]) * torch.log(1 - pred[i])
-                output.append(one_loss)
+                output.append(torch.mean(one_loss))
             else:
                 # only calculate the loss for the related positive class and NILM class 
                 one_loss = (target[i][label] * torch.log(pred[i][label])) + self.neg_weight * torch.log(1 - pred[i][0])
@@ -65,7 +65,7 @@ class RankingLoss(nn.Module):
         output = []
         for i, label in enumerate(labels):
             if label == 0:
-                output.append(torch.tensor(0, dtype=torch.float32))
+                output.append(torch.tensor(0, dtype=torch.float32, device=logits.device))
             else:
                 one_loss = 0
                 for j in range(1, pos_num+1):

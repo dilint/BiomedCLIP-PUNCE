@@ -11,7 +11,7 @@ pip install jupyter
 pip install open-clip-torch transformers matplotlib
 pip install h5py numpy==1.23.5 scikit-learn==0.22.1 future==0.18.3
 pip install wandb==0.15 torchsummary==1.5.1 torchmetrics
-pip install einops chardet omegaconf
+pip install einops chardet omegaconf openpyxl prettytable
 ```
 
 
