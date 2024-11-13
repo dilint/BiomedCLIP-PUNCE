@@ -32,6 +32,10 @@ class MIL(nn.Module):
             self.online_encoder = Transmil(input_dim=mlp_dim,head=head)
         elif mil == 'abmil':
             self.online_encoder = Abmil(input_dim=mlp_dim,act=act)
+        elif mil == 'linear':
+            self.patch_to_emb = nn.Identity()
+            self.online_encoder = nn.Identity()
+            
         else:
             raise ValueError(f'MIL type "{mil}" not supported')
 
@@ -58,7 +62,11 @@ class MIL_MTL(MIL):
     def __init__(self, num_classes, num_task, input_dim=1024, mlp_dim=512,n_classes=2,mil='abmil',dropout=0.25,head=8,act='gelu'):
         super(MIL_MTL, self).__init__(input_dim, mlp_dim,n_classes,mil,dropout,head,act)
         self.predictor = None
-        self.head_task = nn.ModuleList([nn.Linear(mlp_dim, num_classes[i]) for i in range(num_task)])
+        if mil == 'linear':
+            self.head_task = nn.ModuleList([nn.Linear(input_dim, num_classes[i]) for i in range(num_task)])
+        else:
+            self.head_task = nn.ModuleList([nn.Linear(mlp_dim, num_classes[i]) for i in range(num_task)])
+        
         
     def forward(self, x, task_id, return_attn=False):
         x = self.patch_to_emb(x)
@@ -69,7 +77,9 @@ class MIL_MTL(MIL):
         else:
             x = self.online_encoder(x)
 
-        x = self.head_task[task_id](x)
+        # TODO
+        # x = self.head_task[task_id](x)
+        x = self.head_task[task_id[0]](x)
 
         if return_attn:
             return x,attn
