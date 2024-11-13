@@ -2,6 +2,7 @@ import torch.nn as nn
 import torch
 from torch.nn import MarginRankingLoss
 import numpy as np
+from utils import calc_iou
 
 class MyBCELossWithLogits(nn.Module):
     def __init__(self, reduction='mean'):
@@ -53,7 +54,6 @@ class RankingLoss(nn.Module):
         self.reduction = reduction
         self.neg_margin = neg_margin
 
-
     def forward(self, logits, target):
         pos_num = logits.shape[1] - 1
         margin = 1 / pos_num
@@ -98,3 +98,84 @@ class RankingAndSoftBCELoss(nn.Module):
         bce_loss = self.bce_loss(logits, target)
         loss = self.weight_ranking * ranking_loss + self.weight_bce * bce_loss
         return loss
+
+class APLoss(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, logits, targets):
+ 
+        ########################AP-LOSS##########################
+        classification_grads,classification_losses=AP_loss(logits,targets)
+        #########################################################
+
+        ctx.save_for_backward(classification_grads)
+        return classification_losses
+
+    @staticmethod
+    def backward(ctx, out_grad1):
+        g1, =ctx.saved_tensors
+        return g1*out_grad1,None
+
+
+def AP_loss(logits,targets):
+    
+    delta=1.0
+
+    grad=torch.zeros(logits.shape).cuda()
+    metric=torch.zeros(1).cuda()
+
+    if torch.max(targets)<=0:
+        return grad, metric
+  
+    labels_p=(targets==1)
+    fg_logits=logits[labels_p]
+    threshold_logit=torch.min(fg_logits)-delta
+
+    ######## Ignore those negative j that satisfy (L_{ij}=0 for all positive i), to accelerate the AP-loss computation.
+    valid_labels_n=((targets==0)&(logits>=threshold_logit))
+    valid_bg_logits=logits[valid_labels_n] 
+    valid_bg_grad=torch.zeros(len(valid_bg_logits)).cuda()
+    ########
+
+    fg_num=len(fg_logits)
+    prec=torch.zeros(fg_num).cuda()
+    order=torch.argsort(fg_logits)
+    max_prec=0
+
+    for ii in order:
+        tmp1=fg_logits-fg_logits[ii] 
+        tmp1=torch.clamp(tmp1/(2*delta)+0.5,min=0,max=1)
+        tmp2=valid_bg_logits-fg_logits[ii]
+        tmp2=torch.clamp(tmp2/(2*delta)+0.5,min=0,max=1)
+        a=torch.sum(tmp1)+0.5
+        b=torch.sum(tmp2)
+        tmp2/=(a+b)
+        current_prec=a/(a+b)
+        if (max_prec<=current_prec):
+            max_prec=current_prec
+        else:
+            tmp2*=((1-max_prec)/(1-current_prec))
+        valid_bg_grad+=tmp2
+        prec[ii]=max_prec 
+
+    grad[valid_labels_n]=valid_bg_grad
+    grad[labels_p]=-(1-prec) 
+
+    fg_num=max(fg_num,1)
+
+    grad /= (fg_num)
+    
+    metric=torch.sum(prec,dim=0,keepdim=True)/fg_num
+
+    return grad, 1-metric
+
+if __name__ == '__main__':
+    logits = [[0.05, 0.05, 0.3, 0.4, 0.2],
+              [0.05, 0.05, 0.3, 0.4, 0.2]]
+    targets = [[0, 0, 0, 1, 0],
+               [0, 0, 1, 0, 0]]
+    logits = torch.tensor(logits).cuda()
+    targets = torch.tensor(targets).cuda()
+    aploss = APLoss()
+    loss = APLoss.apply(logits, targets)
+    
+    print(loss)

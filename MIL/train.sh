@@ -7,7 +7,7 @@ LABEL_PATH='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc/n-labels'
 TASK_CONFIG='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/configs/oh_5.yaml'
 
 # ablation
-LOSS=${1:-'ranking'}
+LOSS=${1:-'aploss'}
 NEG_WEIGHT=1
 NEG_MARGIN=0
 IMBALANCE_SAMPLER=1

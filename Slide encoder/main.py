@@ -51,15 +51,14 @@ class GcDataset(Dataset):
 if __name__ == '__main__':
     # parser = argparse.ArgumentParser(description='MIL Training Script')
     
-    # label_path = '../datatools/gc/labels/all_label.csv'
-    # label_path = '/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc/labels/all_label.csv'
-    # img_root = '/home1/wsi/gc-224'
-    # feature_root = '/home1/wsi/gc-all-features/frozen/gigapath1'
-    # output_root = '/home1/wsi/gc-all-features/frozen/gigapath-longnet'
-    label_path = '/data/hjl/projects/BiomedCLIP-PUNCE/datatools/gc-2000/labels/all_label_pure.csv'
-    img_root = '/data/hjl/data/TCTGC-2000'
-    feature_root = '/data/hjl/data/frozen-gc-features/gigapath'
-    output_root = '/data/hjl/data/frozen-gc-features/gigapath-longnet'
+    label_path = '/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc/labels/all_label.csv'
+    img_root = '/home1/wsi/gc-224'
+    feature_root = '/home1/wsi/gc-all-features/frozen/gigapath1'
+    output_root = '/home1/wsi/gc-all-features/test/gigapath-longnet'
+    # label_path = '/data/hjl/projects/BiomedCLIP-PUNCE/datatools/gc-2000/labels/all_label_pure.csv'
+    # img_root = '/data/hjl/data/TCTGC-2000'
+    # feature_root = '/data/hjl/data/frozen-gc-features/gigapath'
+    # output_root = '/data/hjl/data/frozen-gc-features/gigapath-longnet'
     if not os.path.exists(output_root):
             os.makedirs(output_root)
     wsi_names = []
@@ -70,7 +69,7 @@ if __name__ == '__main__':
     dataset = GcDataset(wsi_names, img_root, feature_root)
     print(dataset[0])
 
-    slide_encoder = create_model("hf_hub:prov-gigapath/prov-gigapath", "gigapath_slide_enc12l768d", 1536, download=True)
+    slide_encoder = create_model("hf_hub:prov-gigapath/prov-gigapath", "gigapath_slide_enc12l768d", 1536, download=False)
     slide_encoder.eval()
     slide_encoder.to('cuda')
     for i, wsi_name in tqdm(enumerate(wsi_names)):
@@ -80,7 +79,7 @@ if __name__ == '__main__':
             coords = coords.unsqueeze(0)
         # run inference
         with torch.cuda.amp.autocast(dtype=torch.float16):
-            slide_embeds = slide_encoder(tile_embeds.cuda(), coords.cuda(), all_layer_embed=True)
+            slide_embeds = slide_encoder(tile_embeds.cuda(), coords.cuda(),all_layer_embed=True)
         outputs = {"layer_{}_embed".format(i): slide_embeds[i].cpu() for i in range(len(slide_embeds))}
         outputs_feat = slide_embeds[11].detach().cpu().squeeze()
         output_dir = os.path.join(output_root, f'{wsi_name}.pt')
