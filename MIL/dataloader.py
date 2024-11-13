@@ -196,7 +196,13 @@ class C16Dataset(Dataset):
                 dir_path = self.root
             file_path = os.path.join(dir_path, self.file_name[idx]+'.pt')
             features = torch.load(file_path, map_location='cpu')
-
+        if self.keep_same_psize>0:
+            patch_num_ = features.shape[0]
+            if patch_num_ > self.keep_same_psize:
+                features = features[:self.keep_same_psize]
+            elif patch_num_ < self.keep_same_psize:
+                features = torch.cat([features, torch.zeros(self.keep_same_psize-patch_num_, features.shape[1])], dim=0)
+                     
         label = int(self.slide_label[idx])
         return features, label, file_path
     
@@ -243,6 +249,7 @@ class GcDataset(C16Dataset):
                 dir_path = os.path.join(self.root,"pt")
             file_path = os.path.join(dir_path, self.file_name[idx]+'.pt')
             features = torch.load(file_path)
+                              
         label = int(self.slide_label[idx])
         target = F.one_hot(torch.tensor(label), num_classes=2).type(torch.float32)
         # adapt one_hot to calculate CEloss and if the wsi label is a high risk label, increase the loss weight for this sample  
