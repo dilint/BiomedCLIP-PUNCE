@@ -148,6 +148,8 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         criterion = MySoftBCELoss(neg_weight=args.neg_weight)
     elif args.loss == 'ranking':
         criterion = RankingAndSoftBCELoss(neg_weight=args.neg_weight, neg_margin=args.neg_margin)
+    elif args.loss == 'aploss':
+        criterion = APLoss()
 
     # optimizer
     if args.opt == 'adamw':
@@ -313,7 +315,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
             ("test_precision_mean", sum(precisions)/len(precisions)),
             ("test_acc_mean", sum(accs)/len(accs)),
             ("test_fscore_mean", sum(f1s)/len(f1s)),
-            ("test_loss",test_loss),
+            ("test_loss",test_loss.cpu()),
         ])
     df = pd.DataFrame(res, index=[1])
     df.to_excel(os.path.join(args.model_path, 'evaluation.xlsx'), index=False)
@@ -369,6 +371,8 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
                 logit_loss = criterion(train_logits.view(batch_size,-1),label)
             elif args.loss in ['bce', 'softbce', 'ranking']:
                 logit_loss = criterion(train_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=args.num_classes[task_id]).squeeze(1).float())
+            elif args.loss == 'aploss':
+                logit_loss = criterion.apply(train_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=args.num_classes[task_id]).squeeze(1).float())
             assert not torch.isnan(logit_loss)
 
         train_loss = logit_loss
@@ -435,13 +439,15 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
                 else:
                     bag_logits[task_id].extend(torch.softmax(test_logits, dim=-1).cpu().numpy())
             # TODO have not updated            
-            elif args.loss in ['bce', 'softbce', 'ranking']:
-                test_loss = criterion(test_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=args.num_classes[task_id]).squeeze(1).float())
+            elif args.loss in ['bce', 'softbce', 'ranking', 'aploss']:
+                if args.loss == 'aploss':
+                    test_loss = criterion.apply(test_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=args.num_classes[task_id]).squeeze(1).float())
+                else:
+                    test_loss = criterion(test_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=args.num_classes[task_id]).squeeze(1).float())
                 if args.num_classes[task_id] == 2:
                     bag_logits[task_id].extend(torch.sigmoid(test_logits)[:,1].cpu().numpy())
                 else:
                     bag_logits[task_id].extend(torch.sigmoid(test_logits).cpu().numpy())
-                        
             loss_cls_meter.update(test_loss,1)
     
     # save the log file
@@ -495,7 +501,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', default=32, type=int, help='Number of batch size')
     
     # Loss
-    parser.add_argument('--loss', default='ranking', type=str, help='Classification Loss [ce, bce, softbce, ranking]')
+    parser.add_argument('--loss', default='aploss', type=str, help='Classification Loss [ce, bce, softbce, ranking, aploss]')
     parser.add_argument('--neg_weight', default=0.0, type=float, help='Weight for positive sample in SoftBCE')
     parser.add_argument('--neg_margin', default=0, type=float, help='if use neg_margin in ranking loss')
     parser.add_argument('--opt', default='adam', type=str, help='Optimizer [adam, adamw]')

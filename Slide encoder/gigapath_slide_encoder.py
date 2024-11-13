@@ -228,7 +228,7 @@ def create_model(pretrained: str, model_arch: str, in_chans: int, download: bool
 
     if pretrained.startswith("hf_hub:"):
         hub_name = pretrained.split(":")[1]
-        if not download:
+        if download:
             huggingface_hub.hf_hub_download(hub_name, filename="slide_encoder.pth", local_dir=local_dir, force_download=True)
         local_path = os.path.join(local_dir, "slide_encoder.pth")
     else:
