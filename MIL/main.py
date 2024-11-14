@@ -516,7 +516,7 @@ if __name__ == '__main__':
 
     # Model
     # mil meathod
-    parser.add_argument('--mil_method', default='linear', type=str, help='Model name [abmil, transmil, dsmil, clam, linear]')
+    parser.add_argument('--mil_method', default='abmil', type=str, help='Model name [abmil, transmil, dsmil, clam, linear]')
     parser.add_argument('--act', default='relu', type=str, help='Activation func in the projection head [gelu,relu]')
     parser.add_argument('--dropout', default=0.25, type=float, help='Dropout in the projection head')
     parser.add_argument('--da_act', default='relu', type=str, help='Activation func in the DAttention [gelu,relu]')
