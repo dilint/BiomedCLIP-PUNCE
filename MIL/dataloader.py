@@ -224,7 +224,7 @@ class GcMTLDataset(C16Dataset):
         return features, label, task_id, file_path
     
 class GcDataset(C16Dataset):
-    def __init__(self, file_name, file_label,root,persistence,keep_same_psize,high_weight,is_train=False):
+    def __init__(self, file_name, file_label,root,persistence,keep_same_psize,high_weight, num_classes=2, is_train=False):
         """
         Args
         :param images: 
@@ -234,6 +234,7 @@ class GcDataset(C16Dataset):
         self.high_labels = ['ASC-H', 'HSIL']
         self.high_weight = high_weight
         self.is_train = is_train
+        self.num_classes = num_classes
         
     def __getitem__(self, idx):
         """
@@ -251,7 +252,7 @@ class GcDataset(C16Dataset):
             features = torch.load(file_path)
                               
         label = int(self.slide_label[idx])
-        target = F.one_hot(torch.tensor(label), num_classes=2).type(torch.float32)
+        target = F.one_hot(torch.tensor(label), num_classes=self.num_classes).type(torch.float32)
         # adapt one_hot to calculate CEloss and if the wsi label is a high risk label, increase the loss weight for this sample  
         for high_label in self.high_labels:
             if high_label in self.file_name[idx]:

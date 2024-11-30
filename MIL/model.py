@@ -57,6 +57,13 @@ class MIL(nn.Module):
             return x,attn
         else:
             return x
+    
+    def forward_feat(self, x):
+        x = self.patch_to_emb(x)
+        x = self.dp(x)
+        # ps = x.size(1)
+        x = self.online_encoder(x)
+        return x
         
 class MIL_MTL(MIL):
     def __init__(self, num_classes, num_task, input_dim=1024, mlp_dim=512,n_classes=2,mil='abmil',dropout=0.25,head=8,act='gelu'):

@@ -457,8 +457,8 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
         if args.num_classes[i] == 2:
             accuracy, auc_value, precision, recall, fscore = five_scores(bag_labels[i], bag_logits[i])
         else:
-            two_class_scores(bag_labels[i], bag_logits[i])
-            auc_value, accuracy, recall, precision, fscore = multi_class_scores(bag_labels[i], bag_logits[i])
+            # two_class_scores(bag_labels[i], bag_logits[i])
+            auc_value, accuracy, recall, precision, fscore = multi_class_scores_nonilm(bag_labels[i], bag_logits[i])
         accs.append(accuracy)
         aucs.append(auc_value)
         precisions.append(precision)
@@ -474,15 +474,15 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
             stop = early_stopping.early_stop
         else:
             stop = False
-        return stop, accs, aucs, precisions, recalls, f1s,loss_cls_meter.avg
+        return stop, accs, aucs, precisions, recalls, f1s, loss_cls_meter.avg
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MIL Training Script')
 
     # Dataset 
     parser.add_argument('--datasets', default='gc_mtl', type=str, help='[camelyon16, tcga, ngc, gc, fnac, gc_mtl]')
-    parser.add_argument('--dataset_root', default='/home1/wsi/gc-all-features/frozen/gigapath-longnet', type=str, help='Dataset root path')
-    parser.add_argument('--label_path', default='../datatools/gc-2000/onetask_labels', type=str, help='label of train dataset')
+    parser.add_argument('--dataset_root', default='/home1/wsi/gc-all-features/frozen/gigapath1', type=str, help='Dataset root path')
+    parser.add_argument('--label_path', default='../datatools/gc/n-labels', type=str, help='label of train dataset')
     parser.add_argument('--imbalance_sampler', default=0, type=float, help='if use imbalance_sampler')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
     parser.add_argument('--fix_train_random', action='store_true', help='Fix random seed of Training')
@@ -490,7 +490,7 @@ if __name__ == '__main__':
     parser.add_argument('--fold_start', default=0, type=int, help='Start validation fold [0]')
     parser.add_argument('--cv_fold', default=1, type=int, help='Number of cross validation fold [3]')
     parser.add_argument('--persistence', action='store_true', help='Load data into memory') 
-    parser.add_argument('--same_psize', default=0, type=int, help='Keep the same size of all patches [0]')
+    parser.add_argument('--same_psize', default=1000, type=int, help='Keep the same size of all patches [0]')
     parser.add_argument('--train_val', default=1, type=int, help='use train and val set to train the model')
 
     # Train
@@ -501,7 +501,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', default=32, type=int, help='Number of batch size')
     
     # Loss
-    parser.add_argument('--loss', default='aploss', type=str, help='Classification Loss [ce, bce, softbce, ranking, aploss]')
+    parser.add_argument('--loss', default='bce', type=str, help='Classification Loss [ce, bce, softbce, ranking, aploss]')
     parser.add_argument('--neg_weight', default=0.0, type=float, help='Weight for positive sample in SoftBCE')
     parser.add_argument('--neg_margin', default=0, type=float, help='if use neg_margin in ranking loss')
     parser.add_argument('--opt', default='adam', type=str, help='Optimizer [adam, adamw]')
@@ -520,7 +520,7 @@ if __name__ == '__main__':
     parser.add_argument('--act', default='relu', type=str, help='Activation func in the projection head [gelu,relu]')
     parser.add_argument('--dropout', default=0.25, type=float, help='Dropout in the projection head')
     parser.add_argument('--da_act', default='relu', type=str, help='Activation func in the DAttention [gelu,relu]')
-    parser.add_argument('--input_dim', default=768, type=int, help='The dimention of patch feature')
+    parser.add_argument('--input_dim', default=1536, type=int, help='The dimention of patch feature')
 
     # Shuffle
     parser.add_argument('--patch_shuffle', action='store_true', help='2-D group shuffle')
