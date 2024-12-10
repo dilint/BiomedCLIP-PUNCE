@@ -94,7 +94,7 @@ def compute_w_loader(wsi_dir,
         dataset = Whole_Slide_Patchs_Ngc(wsi_dir, target_patch_size, preprocess_val, is_plip=True)
     else:
         dataset = Whole_Slide_Patchs_Ngc(wsi_dir, target_patch_size, preprocess_val)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn = my_collate)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=my_collate)
     if verbose > 0:
         print('processing {}: total of {} batches'.format(wsi_dir,len(loader)))
     
@@ -119,15 +119,15 @@ def main():
     # set argsrget_patch
     parser = argparse.ArgumentParser(description='NGC dataset Feature Extraction')
     parser.add_argument('--dataset', type=str, default='gc-2000', choices=['ngc', 'ubc', 'gc', 'fnac', 'gc-2000'])
-    parser.add_argument('--wsi_root', type=str, default='/data/hjl/data/TCTGC-2000')
-    parser.add_argument('--output_path', type=str, default='/data/hjl/data/frozen-gc-features')
+    parser.add_argument('--wsi_root', type=str, default='/data/wsi/TCTGC50k/TCTGC50k-volume1')
+    parser.add_argument('--output_path', type=str, default='/data/wsi/TCTGC50k-features')
     parser.add_argument('--feat_dir', type=str, default='gigapath')
     parser.add_argument('--verbose', type=int, default=0)
     parser.add_argument('--print_every', type=int, default=20)
     # inference options 
     parser.add_argument('--multi_gpu', action='store_true', default=False)
-    parser.add_argument('--batch_size', type=int, default=32)
-    parser.add_argument('--num_workers', type=int, default=64)
+    parser.add_argument('--batch_size', type=int, default=16)
+    parser.add_argument('--num_workers', type=int, default=40)
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--world_size', type=int, default=1)
     parser.add_argument('--target_patch_size', type=int, nargs='+', default=(224, 224))
