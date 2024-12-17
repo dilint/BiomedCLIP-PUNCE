@@ -151,7 +151,7 @@ def multi_class_scores(bag_labels, bag_logits):
     roc_auc_macro = np.mean(roc_auc)
     return roc_auc_macro, accuracy, recall, precision, fscore
 
-def multi_class_scores_nonilm(bag_labels, bag_logits):
+def multi_class_scores_nonilm(bag_labels, bag_logits, class_labels):
     # 去掉NILM类别 ，通过每个类别分别计算tpr和fpr，获得optimal_threshold，如果每个类别都为0，则被分为NILM
     bag_labels = np.array(bag_labels)
     bag_logits = np.array(bag_logits)
@@ -166,12 +166,12 @@ def multi_class_scores_nonilm(bag_labels, bag_logits):
         fpr_optimal, tpr_optimal, threshold_optimal = optimal_thresh(fpr, tpr, threshold)
         bag_pred_onehot[:, i] = bag_logits[:, i] >= threshold_optimal
     for j in range(bag_pred_onehot.shape[0]):
-        if np.sum(bag_pred_onehot[j, 1:]) == 0:
+        if np.sum(bag_pred_onehot[j]) == 0:
             bag_pred_onehot[j, 0] = 1
-        elif np.sum(bag_pred_onehot[j, 1:]) > 1:
+        elif np.sum(bag_pred_onehot[j]) > 1:
             # 多个类别都大于阈值，则保留最大概率的类别
             bag_pred_onehot[j] = 0
-            bag_pred_onehot[j, np.argmax(bag_logits[j, 1:])] = 1
+            bag_pred_onehot[j, np.argmax(bag_logits[j, 1:])+1] = 1
     bag_pred = np.argmax(bag_pred_onehot, axis=-1)
     
     roc_auc = list(roc_auc.values())
@@ -181,6 +181,7 @@ def multi_class_scores_nonilm(bag_labels, bag_logits):
     recall = recall_score(bag_labels, bag_pred, average='macro', labels=list(range(1,n_classes)))
     precision = precision_score(bag_labels, bag_pred, average='macro', labels=list(range(1,n_classes)))
     fscore = f1_score(bag_labels, bag_pred, average='macro', labels=list(range(1,n_classes)))
+    confusion_matrix(bag_labels, bag_pred, class_labels)
     return roc_auc_macro, accuracy, recall, precision, fscore
     
 
@@ -195,11 +196,12 @@ def two_class_scores(bag_labels, bag_logits):
     confusion_matrix(bag_labels, bag_pred, ['NILM', 'POS'])
     
         
-def confusion_matrix(bag_labels, bag_logits, class_labels):
-    if isinstance(bag_logits[0], np.ndarray):
-        y_true, y_pred = bag_labels, np.argmax(np.array(bag_logits), axis=-1)
-    else:
-        y_true, y_pred = bag_labels, np.array([1 if x > 0.5 else 0 for x in bag_logits])
+def confusion_matrix(bag_labels, bag_pred, class_labels):
+    # if isinstance(bag_logits[0], np.ndarray):
+    #     y_true, y_pred = bag_labels, np.argmax(np.array(bag_logits), axis=-1)
+    # else:
+    #     y_true, y_pred = bag_labels, np.array([1 if x > 0.5 else 0 for x in bag_logits])
+    y_true, y_pred = bag_labels, bag_pred
     num_classes = len(class_labels)
 
     # 初始化混淆矩阵

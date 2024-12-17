@@ -453,12 +453,11 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
     # save the log file
     accs, aucs, precisions, recalls, f1s = [], [], [], [], []
     for i in range(args.num_task):
-        confusion_matrix(bag_labels[i], bag_logits[i], args.class_labels[i])
         if args.num_classes[i] == 2:
             accuracy, auc_value, precision, recall, fscore = five_scores(bag_labels[i], bag_logits[i])
         else:
-            # two_class_scores(bag_labels[i], bag_logits[i])
-            auc_value, accuracy, recall, precision, fscore = multi_class_scores_nonilm(bag_labels[i], bag_logits[i])
+            two_class_scores(bag_labels[i], bag_logits[i])
+            auc_value, accuracy, recall, precision, fscore = multi_class_scores_nonilm(bag_labels[i], bag_logits[i], args.class_labels[i])
         accs.append(accuracy)
         aucs.append(auc_value)
         precisions.append(precision)
@@ -490,7 +489,7 @@ if __name__ == '__main__':
     parser.add_argument('--fold_start', default=0, type=int, help='Start validation fold [0]')
     parser.add_argument('--cv_fold', default=1, type=int, help='Number of cross validation fold [3]')
     parser.add_argument('--persistence', action='store_true', help='Load data into memory') 
-    parser.add_argument('--same_psize', default=1000, type=int, help='Keep the same size of all patches [0]')
+    parser.add_argument('--same_psize', default=0, type=int, help='Keep the same size of all patches [0]')
     parser.add_argument('--train_val', default=1, type=int, help='use train and val set to train the model')
 
     # Train
@@ -498,7 +497,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_epoch', default=200, type=int, help='Number of total training epochs [200]')
     parser.add_argument('--early_stopping', action='store_false', help='Early stopping')
     parser.add_argument('--max_epoch', default=130, type=int, help='Number of max training epochs in the earlystopping [130]')
-    parser.add_argument('--batch_size', default=32, type=int, help='Number of batch size')
+    parser.add_argument('--batch_size', default=1, type=int, help='Number of batch size')
     
     # Loss
     parser.add_argument('--loss', default='bce', type=str, help='Classification Loss [ce, bce, softbce, ranking, aploss]')
