@@ -32,6 +32,9 @@ class MIL(nn.Module):
             self.online_encoder = Transmil(input_dim=mlp_dim,head=head)
         elif mil == 'abmil':
             self.online_encoder = Abmil(input_dim=mlp_dim,act=act)
+        elif mil == 'transab':
+            self.online_encoder = nn.Sequential(Transmil(input_dim=mlp_dim,head=head,return_token=True),
+                                                Abmil(input_dim=mlp_dim,act=act,gated=True))
         elif mil == 'linear':
             self.patch_to_emb = nn.Identity()
             self.online_encoder = nn.Identity()

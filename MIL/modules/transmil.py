@@ -29,7 +29,7 @@ class TransLayer(nn.Module):
 
 class Transmil(nn.Module):
 
-    def __init__(self,input_dim=512,pos_pos=0,pos='ppeg',peg_k=7,head=8):
+    def __init__(self,input_dim=512,pos_pos=0,pos='ppeg',peg_k=7,head=8,return_token=False):
         super(Transmil, self).__init__()
         self.norm = nn.LayerNorm(input_dim)
 
@@ -48,6 +48,7 @@ class Transmil(nn.Module):
             self.pos_embedding = nn.Identity()
 
         self.pos_pos = pos_pos
+        self.return_token = return_token
 
 
     def forward(self, x, return_attn=False):
@@ -92,13 +93,16 @@ class Transmil(nn.Module):
             _a = attn
             return feat ,_a
         else:
-            return feat
+            if self.return_token:
+                return x[:,1:,:]
+            else:
+                return feat
     
 
 if __name__ == "__main__":
-    data = torch.randn((1, 6000, 1024))
-    model = Transmil(input_dim=1024)
-    print(model(data).shape)
+    data = torch.randn((1, 6000, 512))
+    model = Transmil(input_dim=512,return_token=True)
+    print(model(data)[0].shape)
     # print(model.eval())
     # results_dict = model(x = data)
     # print(results_dict)

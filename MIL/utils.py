@@ -131,7 +131,7 @@ def six_scores(bag_labels, bag_predictions, thres):
     # accuracy = 1- np.count_nonzero(np.array(bag_labels).astype(int)- bag_predictions.astype(int)) / len(bag_labels)
     return accuracy, auc_value, precision, recall, specificity, fscore    
 
-def multi_class_scores(bag_labels, bag_logits):
+def multi_class_scores(bag_labels, bag_logits, class_labels):
     bag_labels = np.array(bag_labels)
     n_classes = max(bag_labels) + 1
     bag_labels_one_hot = np.eye(n_classes)[bag_labels]
@@ -149,6 +149,8 @@ def multi_class_scores(bag_labels, bag_logits):
         roc_auc[i] = roc_auc_score(bag_labels_one_hot[:, i], bag_logits[:, i])
     roc_auc = list(roc_auc.values())
     roc_auc_macro = np.mean(roc_auc)
+    confusion_matrix(bag_labels, bag_pred, class_labels)
+    
     return roc_auc_macro, accuracy, recall, precision, fscore
 
 def multi_class_scores_nonilm(bag_labels, bag_logits, class_labels):

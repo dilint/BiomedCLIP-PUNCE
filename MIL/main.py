@@ -457,7 +457,10 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
             accuracy, auc_value, precision, recall, fscore = five_scores(bag_labels[i], bag_logits[i])
         else:
             two_class_scores(bag_labels[i], bag_logits[i])
-            auc_value, accuracy, recall, precision, fscore = multi_class_scores_nonilm(bag_labels[i], bag_logits[i], args.class_labels[i])
+            if args.nonilm:
+                auc_value, accuracy, recall, precision, fscore = multi_class_scores_nonilm(bag_labels[i], bag_logits[i], args.class_labels[i])
+            else:
+                auc_value, accuracy, recall, precision, fscore = multi_class_scores(bag_labels[i], bag_logits[i], args.class_labels[i])
         accs.append(accuracy)
         aucs.append(auc_value)
         precisions.append(precision)
@@ -506,7 +509,7 @@ if __name__ == '__main__':
     parser.add_argument('--opt', default='adam', type=str, help='Optimizer [adam, adamw]')
     parser.add_argument('--save_best_model_stage', default=0., type=float, help='See DTFD')
     parser.add_argument('--seed', default=2024, type=int, help='random number [2021]' )
-    parser.add_argument('--lr', default=2e-3, type=float, help='Initial learning rate [0.0002]')
+    parser.add_argument('--lr', default=2e-4, type=float, help='Initial learning rate [0.0002]')
     parser.add_argument('--lr_sche', default='cosine', type=str, help='Deacy of learning rate [cosine, step, const]')
     parser.add_argument('--lr_supi', action='store_true', help='LR scheduler update per iter')
     parser.add_argument('--weight_decay', default=1e-5, type=float, help='Weight decay [5e-3]')
@@ -515,7 +518,7 @@ if __name__ == '__main__':
 
     # Model
     # mil meathod
-    parser.add_argument('--mil_method', default='abmil', type=str, help='Model name [abmil, transmil, dsmil, clam, linear]')
+    parser.add_argument('--mil_method', default='transab', type=str, help='Model name [abmil, transmil, transab, dsmil, clam, linear]')
     parser.add_argument('--act', default='relu', type=str, help='Activation func in the projection head [gelu,relu]')
     parser.add_argument('--dropout', default=0.25, type=float, help='Dropout in the projection head')
     parser.add_argument('--da_act', default='relu', type=str, help='Activation func in the DAttention [gelu,relu]')
@@ -531,6 +534,7 @@ if __name__ == '__main__':
     parser.add_argument('--title', default='test', type=str, help='Title of exp')
     parser.add_argument('--log_iter', default=100, type=int, help='Log Frequency')
     parser.add_argument('--amp', action='store_true', help='Automatic Mixed Precision Training')
+    parser.add_argument('--nonilm', default=0, type=float, help='if use nilm classifier to judge the score for nilm when eval')
     parser.add_argument('--wandb', action='store_true', help='Weight&Bias')
     parser.add_argument('--num_workers', default=2, type=int, help='Number of workers in the dataloader')
     parser.add_argument('--no_log', action='store_true', help='Without log')
@@ -567,7 +571,6 @@ if __name__ == '__main__':
 
     args.fix_loader_random = True
     args.fix_train_random = True
-    
     
     if args.wandb:
         wandb.login()
