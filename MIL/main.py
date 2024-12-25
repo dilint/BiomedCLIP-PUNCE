@@ -491,7 +491,7 @@ if __name__ == '__main__':
     parser.add_argument('--cv_fold', default=1, type=int, help='Number of cross validation fold [3]')
     parser.add_argument('--persistence', action='store_true', help='Load data into memory') 
     parser.add_argument('--same_psize', default=0, type=int, help='Keep the same size of all patches [0]')
-    parser.add_argument('--train_val', default=1, type=int, help='use train and val set to train the model')
+    parser.add_argument('--train_val', default=0, type=int, help='use train and val set to train the model')
 
     # Train
     parser.add_argument('--auto_resume', action='store_true', help='Resume from the auto-saved checkpoint')
@@ -533,7 +533,7 @@ if __name__ == '__main__':
     parser.add_argument('--log_iter', default=100, type=int, help='Log Frequency')
     parser.add_argument('--amp', action='store_true', help='Automatic Mixed Precision Training')
     parser.add_argument('--wandb', action='store_true', help='Weight&Bias')
-    parser.add_argument('--num_workers', default=2, type=int, help='Number of workers in the dataloader')
+    parser.add_argument('--num_workers', default=16, type=int, help='Number of workers in the dataloader')
     parser.add_argument('--no_log', action='store_true', help='Without log')
     parser.add_argument('--model_path', type=str, default='./output-model', help='Output path')
     parser.add_argument('--task_config', type=str, default='./configs/oh_5.yaml', help='Task config path')
@@ -545,7 +545,7 @@ if __name__ == '__main__':
         args.num_task = task_config['num_task']
         args.num_classes = task_config['num_classes']
         args.class_labels = task_config['class_labels']
-        args.label_path = task_config['label_path']
+        # args.label_path = task_config['label_path']
         f.close()
     # args.num_task = 3
     # args.num_classes = [2,2,4]

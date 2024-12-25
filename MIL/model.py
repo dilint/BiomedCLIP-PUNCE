@@ -67,7 +67,6 @@ class MIL_MTL(MIL):
         else:
             self.head_task = nn.ModuleList([nn.Linear(mlp_dim, num_classes[i]) for i in range(num_task)])
         
-        
     def forward(self, x, task_id, return_attn=False):
         x = self.patch_to_emb(x)
         x = self.dp(x)
@@ -85,7 +84,6 @@ class MIL_MTL(MIL):
             return x,attn
         else:
             return x
-        
 
 if __name__ == '__main__':
     b, n, c = 1, 5, 512

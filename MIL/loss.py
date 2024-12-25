@@ -115,7 +115,6 @@ class APLoss(torch.autograd.Function):
         g1, =ctx.saved_tensors
         return g1*out_grad1,None
 
-
 def AP_loss(logits,targets):
     
     delta=1.0
@@ -168,6 +167,29 @@ def AP_loss(logits,targets):
 
     return grad, 1-metric
 
+
+class Focal_Loss(nn.Module):
+	def __init__(self,weight,gamma=2):
+		super(Focal_Loss,self).__init__()
+		self.gamma=gamma
+		self.weight=weight
+	def forward(self,preds,labels):
+		"""
+		preds:softmax输出结果
+		labels:真实值
+		"""
+		eps=1e-7
+		y_pred =preds.view((preds.size()[0],preds.size()[1],-1)) # B*C*H*W->B*C*(H*W)
+		
+		target=labels.view(y_pred.size()) # B*C*H*W->B*C*(H*W)
+		
+		ce=-1*torch.log(y_pred+eps)*target
+		floss=torch.pow((1-y_pred),self.gamma)*ce
+		floss=torch.mul(floss,self.weight)
+		floss=torch.sum(floss,dim=1)
+		return torch.mean(floss)
+
+
 if __name__ == '__main__':
     logits = [[0.05, 0.05, 0.3, 0.4, 0.2],
               [0.05, 0.05, 0.3, 0.4, 0.2]]
@@ -175,7 +197,9 @@ if __name__ == '__main__':
                [0, 0, 1, 0, 0]]
     logits = torch.tensor(logits).cuda()
     targets = torch.tensor(targets).cuda()
-    aploss = APLoss()
-    loss = APLoss.apply(logits, targets)
+    focal_loss = Focal_Loss(weight=1)
+    loss = focal_loss(logits, targets)
+    # aploss = APLoss()
+    # loss = APLoss.apply(logits, targets)
     
     print(loss)

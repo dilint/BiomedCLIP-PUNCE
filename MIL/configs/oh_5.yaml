@@ -1,9 +1,6 @@
 # label_path: /data/hjl/projects/BiomedCLIP-PUNCE/datatools/gc-2000/onetask_5_labels
-label_path: /home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc/n-labels
 num_task: 1
 num_classes:
   - 5
 class_labels:
   - ['NILM', 'ASC-US', 'LSIL', 'ASC-H', 'HSIL']
-
-
