@@ -200,6 +200,6 @@ if __name__ == '__main__':
     focal_loss = Focal_Loss(weight=1)
     loss = focal_loss(logits, targets)
     # aploss = APLoss()
-    # loss = APLoss.apply(logits, targets)
+    # loss = APLoss.apply(logits, targets)  
     
     print(loss)
