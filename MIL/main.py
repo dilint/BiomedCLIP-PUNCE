@@ -150,6 +150,8 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         criterion = RankingAndSoftBCELoss(neg_weight=args.neg_weight, neg_margin=args.neg_margin)
     elif args.loss == 'aploss':
         criterion = APLoss()
+    elif args.loss == 'focal':
+        criterion = FocalLoss(alpha=torch.tensor([0.5, 1, 1, 1, 1]))
 
     # optimizer
     if args.opt == 'adamw':
@@ -367,7 +369,7 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
             train_logits = model(bag, task_id)
             task_id = task_id[0]
             
-            if args.loss == 'ce':
+            if args.loss in ['ce', 'focal']:
                 logit_loss = criterion(train_logits.view(batch_size,-1),label)
             elif args.loss in ['bce', 'softbce', 'ranking']:
                 logit_loss = criterion(train_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=args.num_classes[task_id]).squeeze(1).float())
@@ -432,7 +434,7 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
             batch_size=bag.size(0)
             bag_labels[task_id].extend(data[1])
             
-            if args.loss == 'ce':
+            if args.loss in ['ce', 'focal']:
                 test_loss = criterion(test_logits.view(batch_size,-1),label)    
                 if args.num_classes[task_id] == 2:
                     bag_logits[task_id].extend(torch.softmax(test_logits,dim=-1)[:,1].cpu().numpy())
@@ -507,7 +509,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', default=32, type=int, help='Number of batch size')
     
     # Loss
-    parser.add_argument('--loss', default='aploss', type=str, help='Classification Loss [ce, bce, softbce, ranking, aploss]')
+    parser.add_argument('--loss', default='focal', type=str, help='Classification Loss [ce, bce, softbce, ranking, aploss, focal]')
     parser.add_argument('--neg_weight', default=0.0, type=float, help='Weight for positive sample in SoftBCE')
     parser.add_argument('--neg_margin', default=0, type=float, help='if use neg_margin in ranking loss')
     parser.add_argument('--opt', default='adam', type=str, help='Optimizer [adam, adamw]')
