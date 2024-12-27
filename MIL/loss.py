@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch
 from torch.nn import MarginRankingLoss
+import torch.nn.functional as F
 import numpy as np
 from utils import calc_iou
 
@@ -167,27 +168,27 @@ def AP_loss(logits,targets):
 
     return grad, 1-metric
 
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=None, gamma=2, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        if alpha is None:
+            self.alpha = torch.ones(1)
+        else:
+            self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
 
-class Focal_Loss(nn.Module):
-	def __init__(self,weight,gamma=2):
-		super(Focal_Loss,self).__init__()
-		self.gamma=gamma
-		self.weight=weight
-	def forward(self,preds,labels):
-		"""
-		preds:softmax输出结果
-		labels:真实值
-		"""
-		eps=1e-7
-		y_pred =preds.view((preds.size()[0],preds.size()[1],-1)) # B*C*H*W->B*C*(H*W)
-		
-		target=labels.view(y_pred.size()) # B*C*H*W->B*C*(H*W)
-		
-		ce=-1*torch.log(y_pred+eps)*target
-		floss=torch.pow((1-y_pred),self.gamma)*ce
-		floss=torch.mul(floss,self.weight)
-		floss=torch.sum(floss,dim=1)
-		return torch.mean(floss)
+    def forward(self, inputs, targets):
+        CE_loss = F.cross_entropy(inputs, targets, reduction='none')
+        pt = torch.exp(-CE_loss)
+        self.alpha = self.alpha.to(inputs.device)
+        F_loss = self.alpha[targets] * (1 - pt) ** self.gamma * CE_loss
+        if self.reduction == 'mean':
+            return torch.mean(F_loss)
+        elif self.reduction == 'sum':
+            return torch.sum(F_loss)
+        else:
+            return F_loss
 
 
 if __name__ == '__main__':

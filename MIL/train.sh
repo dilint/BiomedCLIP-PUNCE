@@ -10,14 +10,14 @@ DATASET_ROOT='/data/wsi/TCTGC50k-features/gigapath'
 LABEL_PATH='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc10k/onetask_5_labels'
 
 # ablation
-LOSS=${1:-'ce'} # ce, bce, softbce, ranking, aploss
+LOSS=${1:-'focal'} # ce, bce, softbce, ranking, aploss, focal
 NEG_WEIGHT=1
 NEG_MARGIN=0
 IMBALANCE_SAMPLER=0
 BATCH_SIZE=16
 INPUT_DIM=1536
 SAME_PSIZE=1000
-MIL_METHOD=transab # abmil transmil transab
+MIL_METHOD=abmil # abmil transmil transab
 TRAIN_VAL=0
 LR=$(echo "0.0002 * ${BATCH_SIZE}" | bc)
 # construct
