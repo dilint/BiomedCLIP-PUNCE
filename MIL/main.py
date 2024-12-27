@@ -458,7 +458,13 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
             accuracy, auc_value, precision, recall, fscore = five_scores(bag_labels[i], bag_logits[i])
         else:
             two_class_scores(bag_labels[i], bag_logits[i])
-            auc_value, accuracy, recall, precision, fscore = multi_class_scores(bag_labels[i], bag_logits[i])
+            if args.nonilm == 1:
+                auc_value, accuracy, recall, precision, fscore = multi_class_scores_nonilm(bag_labels[i], bag_logits[i], args.class_labels[i])
+            elif args.nonilm == 2:
+                auc_value, accuracy, recall, precision, fscore = multi_class_scores_nonilmv2(bag_labels[i], bag_logits[i], args.class_labels[i])
+            else:
+                auc_value, accuracy, recall, precision, fscore = multi_class_scores(bag_labels[i], bag_logits[i], args.class_labels[i])
+            # auc_value, accuracy, recall, precision, fscore = multi_class_scores(bag_labels[i], bag_logits[i])
         accs.append(accuracy)
         aucs.append(auc_value)
         precisions.append(precision)
@@ -535,6 +541,7 @@ if __name__ == '__main__':
     parser.add_argument('--wandb', action='store_true', help='Weight&Bias')
     parser.add_argument('--num_workers', default=16, type=int, help='Number of workers in the dataloader')
     parser.add_argument('--no_log', action='store_true', help='Without log')
+    parser.add_argument('--nonilm', type=float, default=0, help='no nilm')
     parser.add_argument('--model_path', type=str, default='./output-model', help='Output path')
     parser.add_argument('--task_config', type=str, default='./configs/oh_5.yaml', help='Task config path')
     
