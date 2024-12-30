@@ -140,11 +140,15 @@ def multi_class_scores_nonilm(bag_labels, bag_logits, class_labels):
     
     roc_auc = dict()
     bag_pred_onehot = np.zeros_like(bag_logits)
+    thresholds = []
     for i in range(1, n_classes):
         roc_auc[i] = roc_auc_score(bag_labels_one_hot[:, i], bag_logits[:, i])
         fpr, tpr, threshold = roc_curve(bag_labels_one_hot[:, i], bag_logits[:, i], pos_label=1)
         fpr_optimal, tpr_optimal, threshold_optimal = optimal_thresh(fpr, tpr, threshold)
+        thresholds.append(threshold_optimal)
         bag_pred_onehot[:, i] = bag_logits[:, i] >= threshold_optimal
+    print("Info: thresholds for 4 positive classes:")
+    print(thresholds)
     for j in range(bag_pred_onehot.shape[0]):
         if np.sum(bag_pred_onehot[j]) == 0:
             bag_pred_onehot[j, 0] = 1
@@ -161,7 +165,8 @@ def multi_class_scores_nonilm(bag_labels, bag_logits, class_labels):
     recall = recall_score(bag_labels, bag_pred, average='macro', labels=list(range(1,n_classes)))
     precision = precision_score(bag_labels, bag_pred, average='macro', labels=list(range(1,n_classes)))
     fscore = f1_score(bag_labels, bag_pred, average='macro', labels=list(range(1,n_classes)))
-    confusion_matrix(bag_labels, bag_pred, class_labels)
+    two_class_scores(bag_labels, bag_pred)
+    confusion_matrix(bag_labels, bag_pred_onehot, class_labels)
     return roc_auc_macro, accuracy, recall, precision, fscore
 
 def multi_class_scores_nonilmv2(bag_labels, bag_logits, class_labels):
@@ -173,18 +178,25 @@ def multi_class_scores_nonilmv2(bag_labels, bag_logits, class_labels):
     
     roc_auc = dict()
     bag_pred_onehot = np.zeros_like(bag_logits)
+    thresholds, num_pos = [], []
     for i in range(1, n_classes):
         roc_auc[i] = roc_auc_score(bag_labels_one_hot[:, i], bag_logits[:, i])
         fpr, tpr, threshold = roc_curve(bag_labels_one_hot[:, i], bag_logits[:, i], pos_label=1)
         fpr_optimal, tpr_optimal, threshold_optimal = optimal_thresh(fpr, tpr, threshold)
         bag_pred_onehot[:, i] = bag_logits[:, i] >= threshold_optimal
+        thresholds.append(threshold_optimal)
+        num_pos.append(np.sum(bag_pred_onehot[:, i]))
+    print("Info: thresholds for 4 positive classes:")
+    print(thresholds)
+    print("Info: positive num for 4 positive classes:")
+    print(num_pos)
     for j in range(bag_pred_onehot.shape[0]):
         if np.sum(bag_pred_onehot[j]) == 0:
             bag_pred_onehot[j, 0] = 1
         elif np.sum(bag_pred_onehot[j]) > 1:
             # 多个类别都大于阈值，则保留最大风险的类别
-            for i, item in enumerate(bag_pred_onehot[j]):
-                if item >= 1 and i > 0:
+            for i, score in enumerate(bag_pred_onehot[j]):
+                if score >= 1 and i > 0:
                     class_index = i 
             bag_pred_onehot[j] = 0
             bag_pred_onehot[j, class_index] = 1
@@ -197,11 +209,12 @@ def multi_class_scores_nonilmv2(bag_labels, bag_logits, class_labels):
     recall = recall_score(bag_labels, bag_pred, average='macro', labels=list(range(1,n_classes)))
     precision = precision_score(bag_labels, bag_pred, average='macro', labels=list(range(1,n_classes)))
     fscore = f1_score(bag_labels, bag_pred, average='macro', labels=list(range(1,n_classes)))
-    confusion_matrix(bag_labels, bag_pred, class_labels)
+    two_class_scores(bag_labels, bag_pred)
+    confusion_matrix(bag_labels, bag_pred_onehot, class_labels)
     return roc_auc_macro, accuracy, recall, precision, fscore
 
 
-def multi_class_scores(bag_labels, bag_logits):
+def multi_class_scores(bag_labels, bag_logits, class_labels):
     bag_labels = np.array(bag_labels)
     n_classes = max(bag_labels) + 1
     bag_labels_one_hot = np.eye(n_classes)[bag_labels]
@@ -219,13 +232,14 @@ def multi_class_scores(bag_labels, bag_logits):
         roc_auc[i] = roc_auc_score(bag_labels_one_hot[:, i], bag_logits[:, i])
     roc_auc = list(roc_auc.values())
     roc_auc_macro = np.mean(roc_auc)
+    two_class_scores(bag_labels, bag_pred)
+    confusion_matrix(bag_labels, np.eye(n_classes)[bag_pred], class_labels)
     return roc_auc_macro, accuracy, recall, precision, fscore
 
-def two_class_scores(bag_labels, bag_logits):
+def two_class_scores(bag_labels, bag_pred):
     bag_labels = [1 if i != 0 else 0 for i in bag_labels]
-    bag_labels = np.array(bag_labels)
-    bag_pred = np.argmax(np.array(bag_logits), axis=-1)
-    bag_pred = np.array([1 if i != 0 else 0 for i in bag_pred])
+    bag_pred = [1 if i != 0 else 0 for i in bag_pred]
+    bag_labels, bag_pred = np.array(bag_labels), np.array(bag_pred)
 
     accuracy = accuracy_score(bag_labels, bag_pred)
     print(f"Two class Acc:{accuracy}")

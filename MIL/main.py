@@ -203,6 +203,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         train_time_meter.update(end-start)
         
         # train_set acc
+        print('Info: Evaluation for train set')
         accs, aucs, precisions, recalls, f1s, test_loss = val_loop(args,model,train_loader,device,criterion,early_stopping,epoch,test_mode=True)
         if args.wandb:
             for i in range(args.num_task):
@@ -220,6 +221,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
                 ("epoch", epoch)
             ]))
         
+        print('Info: Evaluation for val set')
         stop, accs, aucs, precisions, recalls, f1s, test_loss = val_loop(args,model,val_loader,device,criterion,early_stopping,epoch)
 
         if not args.no_log:
@@ -309,6 +311,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         info = model.load_state_dict(best_std['model'])
         print(info)
         
+    print('Info: Evaluation for test set')
     accs, aucs, precisions, recalls, f1s, test_loss = val_loop(args,model,test_loader,device,criterion,early_stopping,epoch,test_mode=True)
     
     res = OrderedDict([
@@ -455,11 +458,9 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
     # save the log file
     accs, aucs, precisions, recalls, f1s = [], [], [], [], []
     for i in range(args.num_task):
-        confusion_matrix(bag_labels[i], bag_logits[i], args.class_labels[i])
         if args.num_classes[i] == 2:
             accuracy, auc_value, precision, recall, fscore = five_scores(bag_labels[i], bag_logits[i])
         else:
-            two_class_scores(bag_labels[i], bag_logits[i])
             if args.nonilm == 1:
                 auc_value, accuracy, recall, precision, fscore = multi_class_scores_nonilm(bag_labels[i], bag_logits[i], args.class_labels[i])
             elif args.nonilm == 2:

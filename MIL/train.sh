@@ -10,11 +10,11 @@ LABEL_PATH='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc/n-labels'
 # LABEL_PATH='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc10k/onetask_5_labels'
 
 # ablation
-LOSS=${1:-'focal'} # ce, bce, softbce, ranking, aploss, focal
+LOSS=${1:-'bce'} # ce, bce, softbce, ranking, aploss, focal
 NEG_WEIGHT=1
 NEG_MARGIN=0
 IMBALANCE_SAMPLER=0
-BATCH_SIZE=16
+BATCH_SIZE=32
 INPUT_DIM=1536
 SAME_PSIZE=1000
 NONILM=2
@@ -23,7 +23,7 @@ TRAIN_VAL=1
 LR=$(echo "0.0002 * ${BATCH_SIZE}" | bc)
 # construct
 # TITLE="2625_gigapath_oh_5_${LOSS}_${BATCH_SIZE}b_${SAME_PSIZE}PSIZE_${IMBALANCE_SAMPLER}IS_${MIL_METHOD}"
-TITLE="2625_gigapath_oh_5_${LOSS}_${BATCH_SIZE}b_${SAME_PSIZE}PSIZE_${IMBALANCE_SAMPLER}IS_${MIL_METHOD}_${NONIOM}nonilm"
+TITLE="2625_gigapath_oh_5_${LOSS}_${BATCH_SIZE}b_${SAME_PSIZE}PSIZE_${IMBALANCE_SAMPLER}IS_${MIL_METHOD}_${NONILM}nonilm"
 
 python main.py  --loss ${LOSS} \
                 --task_config ${TASK_CONFIG} \
