@@ -198,6 +198,12 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
 
     train_time_meter = AverageMeter()
 
+    if args.eval_only:
+        ckp = torch.load(os.path.join(args.model_path,'ckp.pt'))
+        model.load_state_dict(ckp['model'])
+        accs, aucs, precisions, recalls, f1s, test_loss = val_loop(args,model,test_loader,device,criterion,early_stopping,epoch=0,test_mode=True)
+        return
+    
     for epoch in range(epoch_start, args.num_epoch):
         train_loss,start,end = train_loop(args,model,train_loader,optimizer,device,amp_autocast,criterion,scheduler,k,epoch)
         train_time_meter.update(end-start)
@@ -259,7 +265,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         #         }
         #         torch.save(best_pt, os.path.join(args.model_path, 'fold_{fold}_model_best_auc.pt'.format(fold=k)))
         if re_mean > opt_re and epoch >= args.save_best_model_stage*args.num_epoch:
-            opt_ac, opt_pre, opt_re, opt_fs, opt_auc, opt_epoch = acc_mean, pre_mean, re_mean, re_mean, auc_mean, epoch
+            opt_ac, opt_pre, opt_re, opt_fs, opt_auc, opt_epoch = acc_mean, pre_mean, re_mean, fs_mean, auc_mean, epoch
             if not os.path.exists(args.model_path):
                 os.mkdir(args.model_path)
             if not args.no_log:
@@ -422,20 +428,22 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
 def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=False):
     model.eval()
     loss_cls_meter = AverageMeter()
-    bag_logits, bag_labels=[], []
+    bag_logits, bag_labels, wsi_names = [], [], []
     for i in range(args.num_task):
         bag_logits.append([])
         bag_labels.append([])
-
+        wsi_names.append([])
     with torch.no_grad():
         for i, data in enumerate(loader):
             
             bag, label, task_id = data[0].to(device), data[1].to(device), data[2] # b*n*1024
-
+            wsi_name = [os.path.basename(_) for _ in data[3]]
+            
             test_logits = model(bag, task_id)
             task_id = task_id[0]
             batch_size=bag.size(0)
             bag_labels[task_id].extend(data[1])
+            wsi_names[task_id].extend(wsi_name)
             
             if args.loss in ['ce', 'focal']:
                 test_loss = criterion(test_logits.view(batch_size,-1),label)    
@@ -464,7 +472,7 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
             if args.nonilm == 1:
                 auc_value, accuracy, recall, precision, fscore = multi_class_scores_nonilm(bag_labels[i], bag_logits[i], args.class_labels[i])
             elif args.nonilm == 2:
-                auc_value, accuracy, recall, precision, fscore = multi_class_scores_nonilmv2(bag_labels[i], bag_logits[i], args.class_labels[i])
+                auc_value, accuracy, recall, precision, fscore = multi_class_scores_nonilmv2(bag_labels[i], bag_logits[i], args.class_labels[i], wsi_names[i], args.eval_only)
             else:
                 auc_value, accuracy, recall, precision, fscore = multi_class_scores(bag_labels[i], bag_logits[i], args.class_labels[i])
             # auc_value, accuracy, recall, precision, fscore = multi_class_scores(bag_labels[i], bag_logits[i])
@@ -547,6 +555,7 @@ if __name__ == '__main__':
     parser.add_argument('--nonilm', type=float, default=0, help='no nilm')
     parser.add_argument('--model_path', type=str, default='./output-model', help='Output path')
     parser.add_argument('--task_config', type=str, default='./configs/oh_5.yaml', help='Task config path')
+    parser.add_argument('--eval_only', action='store_true', help='Only evaluate')
     
     args = parser.parse_args()
     
@@ -572,7 +581,7 @@ if __name__ == '__main__':
     
     if not os.path.exists(os.path.join(args.model_path,args.project)):
         os.mkdir(os.path.join(args.model_path,args.project))
-    args.model_path = os.path.join(args.model_path,args.project,args.title)
+    # args.model_path = os.path.join(args.model_path,args.project,args.title)
     if not os.path.exists(args.model_path):
         os.mkdir(args.model_path)
 
