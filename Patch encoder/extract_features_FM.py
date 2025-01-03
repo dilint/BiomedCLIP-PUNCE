@@ -118,7 +118,7 @@ def compute_w_loader(wsi_dir,
 def main():
     # set argsrget_patch
     parser = argparse.ArgumentParser(description='NGC dataset Feature Extraction')
-    parser.add_argument('--dataset', type=str, default='gc-2000', choices=['ngc', 'ubc', 'gc', 'fnac', 'gc-2000'])
+    parser.add_argument('--dataset', type=str, default='gc', choices=['ngc', 'ubc', 'gc2625', 'fnac', 'gc'])
     parser.add_argument('--wsi_root', type=str, default='/data/wsi/TCTGC50k/TCTGC50k-volume1')
     parser.add_argument('--output_path', type=str, default='/data/wsi/TCTGC50k-features')
     parser.add_argument('--feat_dir', type=str, default='gigapath')
@@ -158,7 +158,7 @@ def main():
         for data_root in data_roots:
             wsi_dirs.extend([os.path.join(data_root, subdir) for subdir in os.listdir(data_root)])
     
-    elif args.dataset == 'gc':
+    elif args.dataset == 'gc2625':
         sub_paths = [
             'NILM',
             'POS'
@@ -167,7 +167,7 @@ def main():
         for sub_path in sub_paths:
             wsi_dirs.extend([os.path.join(wsi_root, sub_path, wsi_name) for wsi_name in os.listdir(os.path.join(wsi_root, sub_path))])
     
-    elif args.dataset == 'gc-2000':
+    elif args.dataset == 'gc':
         wsi_dirs = [os.path.join(wsi_root, subdir) for subdir in os.listdir(wsi_root)]
 
     elif args.dataset == 'ubc':

@@ -180,7 +180,7 @@ def multi_class_scores_nonilmv2(bag_labels, bag_logits, class_labels, wsi_names,
     roc_auc = dict()
     bag_pred_onehot = np.zeros_like(bag_logits)
     thresholds, num_pos = [], []
-    threshold_set = [0, 0.3, 0.3, 0.1, 0.005]
+    threshold_set = [0, 0.3, 0.3, 0.3, 0.3]
     for i in range(1, n_classes):
         roc_auc[i] = roc_auc_score(bag_labels_one_hot[:, i], bag_logits[:, i])
         fpr, tpr, threshold = roc_curve(bag_labels_one_hot[:, i], bag_logits[:, i], pos_label=1)
@@ -235,8 +235,8 @@ def multi_class_scores_nonilmv2(bag_labels, bag_logits, class_labels, wsi_names,
             #     err_pos_count += 1
             #     print(f"[Warning]{err_pos_count}: wsi_name: {wsi_name}, label: {bag_labels[i]}, perd: {bag_pred[i]}")
             if bag_labels[i] == 4:
-                print(f"[Info] Logits for {wsi_name}: {bag_logits[i]}")
-        print(f'Accuracy: {accuracy}, Recall: {recall}, Precision: {precision}, Fscore: {fscore}, ROC_AUC: {roc_auc_macro}')
+                print(f"[Info] Logits for {wsi_name}: {[round(bag_logit, 4) for bag_logit in bag_logits[i]]}")
+        print(f'Accuracy: {round(accuracy,4)}, Recall: {round(recall,4)}, Precision: {round(precision,4)}, Fscore: {round(fscore,4)}, ROC_AUC: {round(roc_auc_macro,4)}')
     
     # 打印混淆矩阵
     two_class_scores(bag_labels, bag_pred)

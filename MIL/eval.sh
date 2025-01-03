@@ -4,11 +4,12 @@ set -x
 
 # frozen
 TASK_CONFIG='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/configs/oh_5.yaml'
-# DATASET_ROOT='/home1/wsi/gc-all-features/frozen/gigapath1'
-# LABEL_PATH='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc/n-labels'
-DATASET_ROOT='/data/wsi/TCTGC50k-features/gigapath'
-LABEL_PATH='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc10k/onetask_5_labels'
-MODEL_PATH='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/output-model/mtl-524/10k_gigapath_oh_5_bce_16b_1000PSIZE_0IS_abmil_nonilm'
+DATASET_ROOT='/home1/wsi/gc-all-features/frozen/gigapath1'
+LABEL_PATH='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc/n-labels'
+# DATASET_ROOT='/data/wsi/TCTGC50k-features/gigapath'
+# LABEL_PATH='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc10k/onetask_5_labels'
+# MODEL_PATH='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/output-model/mtl-524/10k_gigapath_oh_5_bce_16b_1000PSIZE_0IS_abmil_nonilm'
+MODEL_PATH='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/output-model/mtl-524/2625_gigapath_oh_5_bce_32b_1000PSIZE_0IS_abmil_2nonilm'
 
 # ablation
 LOSS=${1:-'bce'} # ce, bce, softbce, ranking, aploss, focal
@@ -17,7 +18,7 @@ INPUT_DIM=1536
 SAME_PSIZE=1000
 NONILM=2
 MIL_METHOD=abmil # abmil transmil transab
-TRAIN_VAL=0
+TRAIN_VAL=1
 LR=$(echo "0.0002 * ${BATCH_SIZE}" | bc)
 
 python main.py  --loss ${LOSS} \
