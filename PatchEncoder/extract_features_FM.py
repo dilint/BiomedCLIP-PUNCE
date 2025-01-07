@@ -130,6 +130,9 @@ def compute_w_loader(wsi_dir,
     
     mode = 'w'
     for i, batch in enumerate(loader):
+        if args.only_load:
+            return
+        
         if len(batch) == 0:
             continue
         with torch.no_grad():
@@ -177,6 +180,7 @@ def main():
     parser.add_argument('--ckp_path', type=str, default=None)
     parser.add_argument('--without_head', action='store_true')
     parser.add_argument('--default_preprocess', action='store_true')
+    parser.add_argument('--only_load', action='store_true')
     args = parser.parse_args()
     
     if args.multi_gpu:
@@ -319,6 +323,9 @@ def main():
                         )
         time_elapesd = time.time() - time_start
         print('\ncomputing features for {} took {} s'.format(output_path, time_elapesd))
+
+        if args.only_load:
+            continue
         
         file = h5py.File(output_file_path, 'r')
         
