@@ -129,10 +129,8 @@ def compute_w_loader(wsi_dir,
             m_now = feature.shape[0]
             if m_now > m_max:
                 m_max = m_now
-            if m_now == 0:
-                count_0 += 1
             count_m += m_now
-    print(f'[{os.path.basename(wsi_dir)}] patch num & max cell num & mean cell num & zero patch num: ', n, m_max, m_now/n, count_0)
+    print(f'[{os.path.basename(wsi_dir)}] patch num & max cell num & mean cell num & zero patch num: ', n, m_max, count_m/n, len(dataset)-n)
     torch.save(wsi_feats, output_path)
     
     return output_path
