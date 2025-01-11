@@ -15,6 +15,7 @@ from contextlib import suppress
 import time
 import yaml
 
+from modules.vit_wsi.model_v1 import Model_V1
 from timm.utils import AverageMeter,dispatch_clip_grad
 from timm.models import  model_parameters
 from collections import OrderedDict
@@ -24,6 +25,8 @@ from utils import *
 def main(args):
     # set seed
     seed_torch(args.seed)
+    
+    # --->划分数据集, 一类是camelyon16采用n-fold交叉验证，另一类是tct-gc使用划分好的数据集
     if args.datasets.lower() == 'camelyon16':       
             label_path=os.path.join(args.dataset_root,'label.csv')
             p, l = get_patient_label(label_path)
@@ -32,25 +35,20 @@ def main(args):
             p = p[index]
             l = l[index]
             
-    # --->get dataset
-    elif args.datasets.lower() == 'ngc' or 'gc' or 'fnac':
-        train_p, train_l, test_p, test_l, val_p, val_l = [], [], [], [], [], []
-        train_ps, train_ls = [], []
+    elif args.datasets.lower() in ['ngc', 'gc', 'fnac', 'gc_mtl']:
+        ps, ls = [], []
         label_paths = [args.train_label_path, args.val_label_path, args.test_label_path]
         for label_path in label_paths:
-            with open(label_path, 'r') as file:
-                p, l = [], []               
-                for line in file.readlines():
-                    p.append(line.split(',')[0])
-                    l.append(line.split(',')[1])
-            p, l = [np.array(p)], [np.array(l)]
-            train_ps.append(p)
-            train_ls.append(l)
-        train_p, val_p, test_p = train_ps
-        train_l, val_l, test_l = train_ls
-
+            df = pd.read_csv(label_path)
+            p, l = df.iloc[:, 0].values, df.iloc[:, 1].values
+            ps.append(p)
+            ls.append(l)
+        train_p, val_p, test_p = ps
+        train_l, val_l, test_l = ls
     if args.cv_fold > 1:
         train_p, train_l, test_p, test_l, val_p, val_l = get_kflod(args.cv_fold, p, l,args.val_ratio)
+    else:
+        train_p, train_l, test_p, test_l, val_p, val_l = [train_p], [train_l], [test_p], [test_l], [val_p], [val_l]
     
     acs, pre, rec,fs,auc, te_auc, te_fs=[],[],[],[],[],[],[]
     ckc_metric = [acs, pre, rec, fs, auc, te_auc, te_fs] # acs: [fold, fold] fold: [task1, task2]
@@ -97,16 +95,15 @@ def main(args):
 
 def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     # --->initiation
-    seed_torch(args.seed)
     amp_autocast = torch.cuda.amp.autocast if args.amp else suppress
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     acs,pre,rec,fs,auc,te_auc,te_fs = ckc_metric
 
-    # --->load data
+    # ***--->load data
     if args.datasets.lower() == 'gc_mtl':
-        train_set = GcMTLDataset(train_p[k],train_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,num_classes=args.num_classes,num_task=args.num_task,is_train=True)
-        test_set = GcMTLDataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,num_classes=args.num_classes,num_task=args.num_task)
-        val_set = GcMTLDataset(val_p[k],val_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,num_classes=args.num_classes,num_task=args.num_task)
+        train_set = GcMTLDataset(train_p[k],train_l[k],root=args.dataset_root,num_task=args.num_task,num_classes=args.num_classes,persistence=args.persistence,keep_same_psize=args.same_psize,is_train=True)
+        test_set = GcMTLDataset(test_p[k],test_l[k],root=args.dataset_root,num_task=args.num_task,num_classes=args.num_classes,persistence=args.persistence,keep_same_psize=args.same_psize)
+        val_set = GcMTLDataset(val_p[k],val_l[k],root=args.dataset_root,num_task=args.num_task,num_classes=args.num_classes,persistence=args.persistence,keep_same_psize=args.same_psize)
     else:
         train_set = C16Dataset(train_p[k],train_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,is_train=True)
         test_set = C16Dataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
@@ -124,6 +121,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         big_seed_list = 7784414403328510413
         generator = torch.Generator()
         generator.manual_seed(big_seed_list)  
+        # TODO 增添补齐的collect_fn
         train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers,generator=generator)
     else:
         train_loader = DataLoader(train_set, batch_size=args.batch_size, sampler=RandomSampler(train_set), num_workers=args.num_workers)
@@ -131,7 +129,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
     test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
 
-    # model
+    # ***--->construct model
     model = MIL_MTL(input_dim=args.input_dim, 
                 num_classes=args.num_classes, 
                 num_task=args.num_task,
@@ -139,7 +137,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
                 dropout=args.dropout, 
                 act=args.act).to(device)
 
-    # criterion
+    # ***--->construct criterion
     if args.loss == 'bce':
         criterion = nn.BCEWithLogitsLoss()
     elif args.loss == 'ce':
@@ -177,33 +175,32 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     opt_ac, opt_pre, opt_re, opt_fs, opt_auc, opt_epoch = 0, 0, 0, 0, 0, 0
     epoch_start = 0
 
-    if args.fix_train_random:
-        seed_torch(args.seed)
-
     # resume
-    if args.auto_resume and not args.no_log:
-        ckp = torch.load(os.path.join(args.model_path,'ckp.pt'))
-        epoch_start = ckp['epoch']
-        model.load_state_dict(ckp['model'])
-        optimizer.load_state_dict(ckp['optimizer'])
-        scheduler.load_state_dict(ckp['lr_sche'])
-        early_stopping.load_state_dict(ckp['early_stop'])
-        opt_ac, opt_pre, opt_re, opt_fs, opt_auc,opt_epoch = ckp['val_best_metric']
-        np.random.set_state(ckp['random']['np'])
-        torch.random.set_rng_state(ckp['random']['torch'])
-        random.setstate(ckp['random']['py'])
-        if args.fix_loader_random:
-            train_loader.sampler.generator.set_state(ckp['random']['loader'])
-        args.auto_resume = False
+    # if args.auto_resume and not args.no_log:
+    #     ckp = torch.load(os.path.join(args.model_path,'ckp.pt'))
+    #     epoch_start = ckp['epoch']
+    #     model.load_state_dict(ckp['model'])
+    #     optimizer.load_state_dict(ckp['optimizer'])
+    #     scheduler.load_state_dict(ckp['lr_sche'])
+    #     early_stopping.load_state_dict(ckp['early_stop'])
+    #     opt_ac, opt_pre, opt_re, opt_fs, opt_auc,opt_epoch = ckp['val_best_metric']
+    #     np.random.set_state(ckp['random']['np'])
+    #     torch.random.set_rng_state(ckp['random']['torch'])
+    #     random.setstate(ckp['random']['py'])
+    #     if args.fix_loader_random:
+    #         train_loader.sampler.generator.set_state(ckp['random']['loader'])
+    #     args.auto_resume = False
 
     train_time_meter = AverageMeter()
 
+    # 如果只用来评估测试集的性能
     if args.eval_only:
         ckp = torch.load(os.path.join(args.model_path,'ckp.pt'))
         model.load_state_dict(ckp['model'])
         accs, aucs, precisions, recalls, f1s, test_loss = val_loop(args,model,test_loader,device,criterion,early_stopping,epoch=0,test_mode=True)
         return
     
+    # 训练epoch
     for epoch in range(epoch_start, args.num_epoch):
         train_loss,start,end = train_loop(args,model,train_loader,optimizer,device,amp_autocast,criterion,scheduler,k,epoch)
         train_time_meter.update(end-start)
@@ -319,7 +316,6 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         
     print('Info: Evaluation for test set')
     accs, aucs, precisions, recalls, f1s, test_loss = val_loop(args,model,test_loader,device,criterion,early_stopping,epoch,test_mode=True)
-    
     res = OrderedDict([
             ("test_auc_mean", sum(aucs)/len(aucs)),
             ("test_recall_mean", sum(recalls)/len(recalls)),
@@ -357,7 +353,7 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
     loss_cls_meter = AverageMeter()
     train_loss_log = 0.
     model.train()
-    
+    sum_num_classes = sum(args.num_classes)
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     num_total_param = sum(p.numel() for p in model.parameters())
     if not args.no_log:
@@ -366,7 +362,7 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
     for i, data in enumerate(loader):
         optimizer.zero_grad()
 
-        bag, label, task_id = data[0].to(device), data[1].to(device), data[2].to(device)  # b*n*1024
+        bag, label, task_id = data[0].to(device), data[1].to(device), data[2].to(device)  # [b,n,1024]
         batch_size=bag.size(0)
             
         with amp_autocast():
@@ -374,16 +370,16 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
                 bag = patch_shuffle(bag,args.shuffle_group)
             elif args.group_shuffle:
                 bag = group_shuffle(bag,args.shuffle_group)
-           
-            train_logits = model(bag, task_id)
-            task_id = task_id[0]
+
+            # TODO 一阶段方法传入bag, task_id , 两阶段方法传入bag, mask 
+            train_logits = model(bag, task_id) # [B, sum_num_classes]
             
             if args.loss in ['ce', 'focal']:
                 logit_loss = criterion(train_logits.view(batch_size,-1),label)
             elif args.loss in ['bce', 'softbce', 'ranking']:
-                logit_loss = criterion(train_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=args.num_classes[task_id]).squeeze(1).float())
+                logit_loss = criterion(train_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=sum_num_classes).squeeze(1).float())
             elif args.loss == 'aploss':
-                logit_loss = criterion.apply(train_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=args.num_classes[task_id]).squeeze(1).float())
+                logit_loss = criterion.apply(train_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=sum_num_classes).squeeze(1).float())
             assert not torch.isnan(logit_loss)
 
         train_loss = logit_loss
@@ -494,10 +490,38 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
         return stop, accs, aucs, precisions, recalls, f1s,loss_cls_meter.avg
 
 if __name__ == '__main__':
+    
+    # args = argparse.ArgumentParser()
+    # args.in_dims = 256
+    # args.num_classes = [1,5,3]
+    # args.depth = 4
+    # args.num_heads = 4
+    # args.proj_drop = 0.02
+    # args.attn_drop = 0.02
+    # args.drop_path = 0.01
+
+    # model = Model_V1(
+    #     in_dims=args.in_dims,
+    #     num_classes=args.num_classes,
+    #     depth=args.depth,
+    #     num_heads=args.num_heads,
+    #     proj_drop=args.proj_drop,
+    #     attn_drop=args.attn_drop,
+    #     drop_path=args.drop_path,
+    # )
+
+    # size = (5, 10, 100, 256) # [B, N, M, C]
+    # mask = torch.ones(size[0], size[1], size[2])
+    # a = torch.randn(size)
+    # output = model(a, mask)
+    # print(output.shape)
+    
+    # assert 1==0
+    
     parser = argparse.ArgumentParser(description='MIL Training Script')
 
     # Dataset 
-    parser.add_argument('--datasets', default='gc_mtl', type=str, help='[camelyon16, tcga, ngc, gc, fnac, gc_mtl]')
+    parser.add_argument('--datasets', default='gc_mtl', type=str, help='[camelyon16, tcga, ngc, gc, fnac, gc_mtl, gc_fine]')
     parser.add_argument('--dataset_root', default='/home1/wsi/gc-all-features/frozen/gigapath-longnet', type=str, help='Dataset root path')
     parser.add_argument('--label_path', default='../datatools/gc-2000/onetask_labels', type=str, help='label of train dataset')
     parser.add_argument('--imbalance_sampler', default=0, type=float, help='if use imbalance_sampler')
@@ -588,7 +612,7 @@ if __name__ == '__main__':
     args.fix_loader_random = True
     args.fix_train_random = True
     
-    
+    # wandb注册
     if args.wandb:
         wandb.login()
         if args.auto_resume:

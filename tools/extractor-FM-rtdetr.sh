@@ -17,8 +17,8 @@ python -m torch.distributed.launch --nproc_per_node=$GPU_NUMBERS \
             --wsi_root=$WSI_ROOT \
             --model_path=$MODEL_PATH \
             --target_patch_size 1280 1280 \
-            --batch_size=5 \
+            --batch_size=3 \
             --multi_gpu \
-            --num_workers=10 \
+            --num_workers=6 \
             --confidence_thres 0.3 \
             --device_ids 2 3 \

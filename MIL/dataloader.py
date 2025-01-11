@@ -161,9 +161,13 @@ class C16Dataset(Dataset):
 
     def __init__(self, file_name, file_label,root,persistence=False,keep_same_psize=0,is_train=False):
         """
-        Args
-        :param images: 
-        :param transform: optional transform to be applied on a sample
+        参数
+            file_name: WSI pt文件名列表
+            file_label: WSI标签列表
+            root: WSI pt文件根目录
+            persistence: 是否将所有pt文件在init()中加载到内存中
+            keep_same_psize: 是否保持每个样本的patch数量一致
+            is_train: 是否为训练集
         """
         super(C16Dataset, self).__init__()
         self.file_name = file_name
@@ -201,16 +205,18 @@ class C16Dataset(Dataset):
             if patch_num_ > self.keep_same_psize:
                 features = features[:self.keep_same_psize]
             elif patch_num_ < self.keep_same_psize:
-                features = torch.cat([features, torch.zeros(self.keep_same_psize-patch_num_, features.shape[1])], dim=0)
+                # features 的维度可能是[N,C] 也可能是[N,M,C]，其中N不定长，M定长
+                features = torch.cat([features, torch.zeros(self.keep_same_psize-patch_num_, *features.shape[1:])], dim=0)
                      
         label = int(self.slide_label[idx])
         return features, label, file_path
     
 class GcMTLDataset(C16Dataset):
-    def __init__(self, file_name, file_label,root,persistence,keep_same_psize,num_classes,num_task,is_train=False):
+    def __init__(self, file_name, file_label,root,num_task,num_classes,persistence=False,keep_same_psize=0,is_train=False,fine_concat=False):
         super(GcMTLDataset, self).__init__(file_name, file_label,root,persistence,keep_same_psize,is_train)
         self.num_classes = num_classes
         self.num_task = num_task
+        self.fine_concat = fine_concat
         
     def __getitem__(self, idx):
         features, label, file_path = super().__getitem__(idx)
@@ -219,49 +225,14 @@ class GcMTLDataset(C16Dataset):
         # 第一个位置大于label的位置即为task_id
         task_id = next((i for i, x in enumerate(tensor_num_classes_cumsum) if x > label), -1)
 
-        if task_id > 0:
-            label -= tensor_num_classes_cumsum[task_id-1]
+        # if task_id > 0:
+        #     label -= tensor_num_classes_cumsum[task_id-1]
+        
+        if self.fine_concat:
+            features = features.reshape(-1, features.shape[-1])
         return features, label, task_id, file_path
     
-class GcDataset(C16Dataset):
-    def __init__(self, file_name, file_label,root,persistence,keep_same_psize,high_weight,is_train=False):
-        """
-        Args
-        :param images: 
-        :param transform: optional transform to be applied on a sample
-        """
-        super(GcDataset, self).__init__(file_name, file_label,root,persistence,keep_same_psize,is_train)
-        self.high_labels = ['ASC-H', 'HSIL']
-        self.high_weight = high_weight
-        self.is_train = is_train
-        
-    def __getitem__(self, idx):
-        """
-        Args
-        :param idx: the index of item
-        :return: image and its label
-        """
-        if self.persistence:
-            features = self.feats[idx]
-        else:
-            dir_path = self.root
-            if "pt" in os.listdir(self.root):
-                dir_path = os.path.join(self.root,"pt")
-            file_path = os.path.join(dir_path, self.file_name[idx]+'.pt')
-            features = torch.load(file_path)
-                              
-        label = int(self.slide_label[idx])
-        target = F.one_hot(torch.tensor(label), num_classes=2).type(torch.float32)
-        # adapt one_hot to calculate CEloss and if the wsi label is a high risk label, increase the loss weight for this sample  
-        for high_label in self.high_labels:
-            if high_label in self.file_name[idx]:
-                target[1] = self.high_weight
-                break
-        if self.is_train:
-            return features, target, file_path
-        else:
-            return features, label, file_path
-
+    
 class NGCDatasetInfer(Dataset):
 
     def __init__(self, file_name, file_label,root,persistence=False,keep_same_psize=0,is_train=False):

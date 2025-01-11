@@ -76,10 +76,11 @@ class MIL_MTL(MIL):
         else:
             x = self.online_encoder(x)
 
-        # TODO
+        xs = [self.head_task[i](x) for i in range(len(self.head_task))]
+        x = torch.cat(xs, dim=-1)
         # x = self.head_task[task_id](x)
-        x = self.head_task[task_id[0]](x)
-
+        # x = self.head_task[task_id[0]](x)
+        
         if return_attn:
             return x,attn
         else:
