@@ -6,7 +6,7 @@ FEAT_DIR='plip-coarse' # gigapath1
 BASE_MODEL='plip' # 'biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2', 'gigapath', 'mae'
 DATASET='gc' # 'ngc', 'ubc', 'gc', 'fnac', 'gc2625'
 
-GPU_NUMBERS=2
+GPU_NUMBERS=1
 # WSI_ROOT='/data/wsi/TCTGC50k/TCTGC50k-volume2' 
 WSI_ROOT='/data/wsi/TCTGC50k/TCTGC50k-volume1' 
 OUTPUT_PATH='/data/wsi/TCTGC10k-features'
@@ -21,5 +21,5 @@ python -m torch.distributed.launch --nproc_per_node=$GPU_NUMBERS \
             --target_patch_size 224 224 \
             --multi_gpu \
             --batch_size=5 \
-            --num_workers=10 \
+            --num_workers=30 \
             # --only_load

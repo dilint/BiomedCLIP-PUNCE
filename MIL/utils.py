@@ -367,11 +367,22 @@ def two_class_scores(bag_labels, bag_pred):
     confusion_matrix(bag_labels, bag_pred, ['NILM', 'POS'])
     
         
-def confusion_matrix(bag_labels, bag_logits, class_labels):
-    if isinstance(bag_logits[0], np.ndarray):
-        y_true, y_pred = bag_labels, np.argmax(np.array(bag_logits), axis=-1)
-    else:
-        y_true, y_pred = bag_labels, np.array([1 if x > 0.5 else 0 for x in bag_logits])
+def confusion_matrix(bag_labels, bag_pred, class_labels):
+    """
+    混淆矩阵生成：
+    参数：
+        bag_labels (ndarray): [N] 真实标签
+        bag_pred (ndarray): [N] 预测标签
+        class_labels (list): n_class 标签名称
+    """
+    if len(class_labels) == 2:
+        y_true, y_pred = [1 if i != 0 else 0 for i in bag_labels], [1 if i != 0 else 0 for i in bag_pred]
+        # if isinstance(bag_logits[0], np.ndarray):
+        #     y_true, y_pred = bag_labels, np.argmax(np.array(bag_logits), axis=-1)
+        # else:
+        #     y_true, y_pred = bag_labels, np.array([1 if x > 0.5 else 0 for x in bag_logits])
+            
+    y_true, y_pred = bag_labels, bag_pred
     num_classes = len(class_labels)
 
     # 初始化混淆矩阵

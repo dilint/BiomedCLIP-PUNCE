@@ -31,6 +31,7 @@ python main.py  --loss ${LOSS} \
                 --neg_weight ${NEG_WEIGHT} \
                 --neg_margin ${NEG_MARGIN} \
                 --imbalance_sampler ${IMBALANCE_SAMPLER} \
+                --project='mtl-test' \
                 --title ${TITLE} \
                 --batch_size ${BATCH_SIZE} \
                 --dataset_root ${DATASET_ROOT} \
@@ -40,5 +41,5 @@ python main.py  --loss ${LOSS} \
                 --label_path ${LABEL_PATH} \
                 --nonilm ${NONILM} \
                 --train_val ${TRAIN_VAL} \
-                --eval_only
-                # --wandb
+                --wandb
+                # --eval_only
