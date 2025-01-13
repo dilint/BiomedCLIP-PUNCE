@@ -3,11 +3,12 @@
 set -x
 
 # frozen
-TASK_CONFIG='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/configs/mh_9.yaml'
-DATASET_ROOT='/data/wsi/TCTGC50k-features/gigapath-coarse'
-LABEL_PATH='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc10k/9_labels'
-# DATASET_ROOT='/home1/wsi/gc-all-features/frozen/gigapath1'
-# LABEL_PATH='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc/n-labels'
+# TASK_CONFIG='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/configs/mh_9.yaml'
+# DATASET_ROOT='/data/wsi/TCTGC50k-features/gigapath-coarse'
+# LABEL_PATH='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc10k/9_labels'
+TASK_CONFIG='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/configs/oh_5.yaml'
+DATASET_ROOT='/home1/wsi/gc-all-features/frozen/gigapath1'
+LABEL_PATH='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc/n-labels'
 
 # ablation
 LOSS=${1:-'bce'} # ce, bce, softbce, ranking, aploss, focal
@@ -22,8 +23,8 @@ MIL_METHOD=abmil # abmil transmil transab
 TRAIN_VAL=1
 LR=$(echo "0.0002 * ${BATCH_SIZE}" | bc)
 # construct
-# TITLE="2625_gigapath_oh_5_${LOSS}_${BATCH_SIZE}b_${SAME_PSIZE}PSIZE_${IMBALANCE_SAMPLER}IS_${MIL_METHOD}"
-TITLE="10k_gigapath_oh_5_${LOSS}_${BATCH_SIZE}b_${SAME_PSIZE}PSIZE_${IMBALANCE_SAMPLER}IS_${MIL_METHOD}_${NONILM}nonilm"
+TITLE="2625_gigapath_oh_5_${LOSS}_${BATCH_SIZE}b_${SAME_PSIZE}PSIZE_${IMBALANCE_SAMPLER}IS_${MIL_METHOD}"
+# TITLE="10k_gigapath_oh_5_${LOSS}_${BATCH_SIZE}b_${SAME_PSIZE}PSIZE_${IMBALANCE_SAMPLER}IS_${MIL_METHOD}"
 
 python main.py  --loss ${LOSS} \
                 --task_config ${TASK_CONFIG} \
@@ -39,4 +40,5 @@ python main.py  --loss ${LOSS} \
                 --label_path ${LABEL_PATH} \
                 --nonilm ${NONILM} \
                 --train_val ${TRAIN_VAL} \
+                --eval_only
                 # --wandb

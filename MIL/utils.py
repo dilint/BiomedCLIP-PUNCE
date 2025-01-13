@@ -244,6 +244,96 @@ def multi_class_scores_nonilmv2(bag_labels, bag_logits, class_labels, wsi_names,
     
     return roc_auc_macro, accuracy, recall, precision, fscore
 
+def multi_class_scores_mtl(bag_labels, bag_logits, class_labels, wsi_names, threshold, eval_only):
+    """
+    参数：
+        bag_labels (list): N, 真实标签
+        bag_logtis (tensor): [N, num_class], 每个样本的类别概率
+        class_labels (list): [['NILM'], ['ASC-US', 'LSIL', 'ASC-H', 'HSIL', 'AGC'], ['BV', 'M', 'T']],  类别标签, 
+        wsi_names (list): N, WSI名称,方便打印错误信息
+        eval_only (bool): 是否只进行评估
+    返回：
+        roc_auc_macro (ndarray): 多类别ROC_AUC
+        accuracy (float): Micro 准确率
+        recall (ndarray): Macro 阳性召回率 len = 8 or 4 
+        precision (ndarray): Macro 阳性精确率
+        fscore (ndarray): Macro F1分数
+    TODO 目前对于多类别任务，只考虑了1,5,3的多分类划分方式以及5分类的单任务模式
+    """
+    # 将所有类别合并处理
+    assert len(class_labels) == 5 or len(class_labels) == 9 
+    bag_labels = np.array(bag_labels)
+    bag_logits = np.array(bag_logits)
+ 
+    # 对于宫颈癌症风险和微生物感染任务 分开计算指标
+    if len(class_labels) == 9:
+        bag_labels_cancer, bag_labels_microbial = bag_labels[bag_labels < 6], bag_labels[bag_labels >= 6]
+        bag_logits_cancer, bag_logtis_microbial = bag_logits[bag_labels < 6, :], bag_logits[bag_labels >= 6, :]
+        class_labels_cancer, class_labels_microbial = class_labels[:6], class_labels[6:]
+    else:
+        bag_labels_cancer, bag_logits_cancer, class_labels_cancer = bag_labels, bag_logits, class_labels
+ 
+    roc_auc = []
+    # 首先评估宫颈癌症风险
+    n_cancer_class = len(class_labels_cancer)
+    n_cancer_sample = bag_labels_cancer.shape[0]
+    bag_labels_cancer_onehot = np.eye(n_cancer_class)[bag_labels_cancer]
+    bag_pred_cancer_onehot = np.zeros_like(bag_logits_cancer)
+    for i in range(1, n_cancer_class):
+        roc_auc.append(roc_auc_score(bag_labels_cancer_onehot[:, i], bag_logits_cancer[:, i]))
+        bag_pred_cancer_onehot[:, i] = bag_logits_cancer[:, i] >= threshold
+    # print(bag_pred_cancer_onehot.shape)
+    for j in range(bag_pred_cancer_onehot.shape[0]):
+        if np.sum(bag_pred_cancer_onehot[j]) == 0:
+            bag_pred_cancer_onehot[j, 0] = 1
+        elif np.sum(bag_pred_cancer_onehot[j]) > 1:
+            # 多个类别都大于阈值，则保留最大风险的类别
+            bag_pred_cancer_onehot[j] = 0
+            bag_pred_cancer_onehot[j, np.argmax(bag_logits_cancer[j, 1:])+1] = 1
+            # 如果该类别被判定为NILM的概率过高 也输出错误信息
+            if bag_logits_cancer[j, 0] > 0.95:
+                print(f'[ERROR] {wsi_names[j]} risk prediction is wrong: {[round(risk, 4) for risk in bag_logits_cancer[j]]}')
+    
+    bag_pred_cancer = np.argmax(bag_pred_cancer_onehot, axis=-1) # [N_cancer,]
+    accuracy = accuracy_score(bag_labels_cancer, bag_pred_cancer)
+    recalls = recall_score(bag_labels_cancer, bag_pred_cancer, average=None, labels=list(range(1,n_cancer_class)))
+    precisions = precision_score(bag_labels_cancer, bag_pred_cancer, average=None, labels=list(range(1,n_cancer_class)))
+    fscores = f1_score(bag_labels_cancer, bag_pred_cancer, average=None, labels=list(range(1,n_cancer_class)))
+    print('[INFO] confusion matrix for cancer labels:')
+    confusion_matrix(bag_labels_cancer, bag_pred_cancer, class_labels_cancer)
+    print('fscores len' + str(len(fscores)))
+    
+    # 评估微生物感染
+    if len(class_labels) == 9:
+        n_microbial_class = len(class_labels_microbial)
+        n_microbial_sample = bag_labels_microbial.shape[0]
+        bag_labels_microbial_onehot = np.eye(n_microbial_class)[bag_labels_microbial-6]
+        bag_pred_microbial_onehot = np.zeros_like(bag_logtis_microbial)
+        for i in range(n_microbial_class):
+            roc_auc.append(roc_auc_score(bag_labels_microbial_onehot[:, i], bag_logtis_microbial[:, i]))
+            bag_pred_microbial_onehot[:, i] = bag_logtis_microbial[:, i] >= threshold
+        for j in range(bag_pred_microbial_onehot.shape[0]):
+            if np.sum(bag_pred_microbial_onehot[j]) == 0:
+                bag_pred_microbial_onehot[j, 0] = 1
+            elif np.sum(bag_pred_microbial_onehot[j]) > 1:
+                # 多个类别都大于阈值，则保留最大风险的类别
+                bag_pred_microbial_onehot[j] = 0
+                bag_pred_microbial_onehot[j, np.argmax(bag_logtis_microbial[j, 1:])+1] = 1
+        bag_pred_microbial = np.argmax(bag_pred_microbial_onehot, axis=-1) # [N,]
+        # print(recalls, recalls.shape, type(recalls))
+        recalls2 = recall_score(bag_labels_microbial, bag_pred_microbial, average=None, labels=list(range(n_microbial_class)))
+        precisions2 = precision_score(bag_labels_microbial, bag_pred_microbial, average=None, labels=list(range(n_microbial_class)))
+        fscores2 = f1_score(bag_labels_microbial, bag_pred_microbial, average=None, labels=list(range(n_microbial_class)))
+        # print(recalls2, recalls2.shape, type(recalls2))
+        recalls, precisions, fscores = np.concatenate((recalls, recalls2)), np.concatenate((precisions, precisions2)), np.concatenate((fscores, fscores2))
+        print('[INFO] confusion matrix for microbial labels:')
+        confusion_matrix(bag_labels_microbial-6, bag_pred_microbial, class_labels_microbial)
+        accuracy_2 = accuracy_score(bag_labels_microbial, bag_pred_microbial)
+        accuracy = (accuracy * n_cancer_sample + accuracy_2 * n_microbial_sample) / (n_cancer_sample + n_microbial_sample)
+    print('Recalls: ' + str(recalls))
+    return roc_auc, accuracy, recalls, precisions, fscores
+    # return roc_auc_macro, accuracy, recall, precision, fscore
+
 
 def multi_class_scores(bag_labels, bag_logits, class_labels):
     bag_labels = np.array(bag_labels)
