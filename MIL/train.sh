@@ -2,13 +2,17 @@
 
 set -x
 
-# frozen
-# TASK_CONFIG='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/configs/mh_9.yaml'
-# DATASET_ROOT='/data/wsi/TCTGC50k-features/gigapath-coarse'
-# LABEL_PATH='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc10k/9_labels'
-TASK_CONFIG='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/configs/oh_5.yaml'
-DATASET_ROOT='/home1/wsi/gc-all-features/frozen/gigapath1'
-LABEL_PATH='/home/huangjialong/projects/BiomedCLIP-PUNCE/datatools/gc/n-labels'
+# 前两个选项来选择 数据集和提取特征方式
+DATASET='TCTGC10k'
+FEATURES='gigapath-coarse'
+if [ "${DATASET}" = "TCTGC10k" ]; then
+    TASK_CONFIG='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/configs/mh_9.yaml'
+    LABEL_PATH="/data/wsi/TCTGC10k-labels/9_labels"
+elif [ "${DATASET}" = "TCTGC2625" ]; then
+    TASK_CONFIG='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/configs/oh_5.yaml'
+    LABEL_PATH='/data/wsi/TCTGC2625-labels/n-labels'
+fi
+DATASET_ROOT="/data/wsi/${DATASET}-features/${FEATURES}"
 
 # ablation
 LOSS=${1:-'bce'} # ce, bce, softbce, ranking, aploss, focal
@@ -23,7 +27,7 @@ MIL_METHOD=abmil # abmil transmil transab
 TRAIN_VAL=1
 LR=$(echo "0.0002 * ${BATCH_SIZE}" | bc)
 # construct
-TITLE="2625_gigapath_oh_5_${LOSS}_${BATCH_SIZE}b_${SAME_PSIZE}PSIZE_${IMBALANCE_SAMPLER}IS_${MIL_METHOD}"
+TITLE="${DATASET}_${FEATURES}_oh_5_${LOSS}_${BATCH_SIZE}b_${SAME_PSIZE}PSIZE_${IMBALANCE_SAMPLER}IS_${MIL_METHOD}"
 # TITLE="10k_gigapath_oh_5_${LOSS}_${BATCH_SIZE}b_${SAME_PSIZE}PSIZE_${IMBALANCE_SAMPLER}IS_${MIL_METHOD}"
 
 python main.py  --loss ${LOSS} \
@@ -41,5 +45,5 @@ python main.py  --loss ${LOSS} \
                 --label_path ${LABEL_PATH} \
                 --nonilm ${NONILM} \
                 --train_val ${TRAIN_VAL} \
-                --wandb
+                # --wandb
                 # --eval_only

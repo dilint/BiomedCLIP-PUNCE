@@ -268,7 +268,7 @@ def multi_class_scores_mtl(bag_labels, bag_logits, class_labels, wsi_names, thre
     # 对于宫颈癌症风险和微生物感染任务 分开计算指标
     if len(class_labels) == 9:
         bag_labels_cancer, bag_labels_microbial = bag_labels[bag_labels < 6], bag_labels[bag_labels >= 6]
-        bag_logits_cancer, bag_logtis_microbial = bag_logits[bag_labels < 6, :], bag_logits[bag_labels >= 6, :]
+        bag_logits_cancer, bag_logtis_microbial = bag_logits[bag_labels < 6, :6], bag_logits[bag_labels >= 6, 6:]
         class_labels_cancer, class_labels_microbial = class_labels[:6], class_labels[6:]
     else:
         bag_labels_cancer, bag_logits_cancer, class_labels_cancer = bag_labels, bag_logits, class_labels
@@ -307,7 +307,8 @@ def multi_class_scores_mtl(bag_labels, bag_logits, class_labels, wsi_names, thre
     if len(class_labels) == 9:
         n_microbial_class = len(class_labels_microbial)
         n_microbial_sample = bag_labels_microbial.shape[0]
-        bag_labels_microbial_onehot = np.eye(n_microbial_class)[bag_labels_microbial-6]
+        bag_labels_microbial = bag_labels_microbial - 6
+        bag_labels_microbial_onehot = np.eye(n_microbial_class)[bag_labels_microbial]
         bag_pred_microbial_onehot = np.zeros_like(bag_logtis_microbial)
         for i in range(n_microbial_class):
             roc_auc.append(roc_auc_score(bag_labels_microbial_onehot[:, i], bag_logtis_microbial[:, i]))
@@ -318,7 +319,7 @@ def multi_class_scores_mtl(bag_labels, bag_logits, class_labels, wsi_names, thre
             elif np.sum(bag_pred_microbial_onehot[j]) > 1:
                 # 多个类别都大于阈值，则保留最大风险的类别
                 bag_pred_microbial_onehot[j] = 0
-                bag_pred_microbial_onehot[j, np.argmax(bag_logtis_microbial[j, 1:])+1] = 1
+                bag_pred_microbial_onehot[j, np.argmax(bag_logtis_microbial[j,])] = 1
         bag_pred_microbial = np.argmax(bag_pred_microbial_onehot, axis=-1) # [N,]
         # print(recalls, recalls.shape, type(recalls))
         recalls2 = recall_score(bag_labels_microbial, bag_pred_microbial, average=None, labels=list(range(n_microbial_class)))
@@ -327,13 +328,12 @@ def multi_class_scores_mtl(bag_labels, bag_logits, class_labels, wsi_names, thre
         # print(recalls2, recalls2.shape, type(recalls2))
         recalls, precisions, fscores = np.concatenate((recalls, recalls2)), np.concatenate((precisions, precisions2)), np.concatenate((fscores, fscores2))
         print('[INFO] confusion matrix for microbial labels:')
-        confusion_matrix(bag_labels_microbial-6, bag_pred_microbial, class_labels_microbial)
+        confusion_matrix(bag_labels_microbial, bag_pred_microbial, class_labels_microbial)
         accuracy_2 = accuracy_score(bag_labels_microbial, bag_pred_microbial)
         accuracy = (accuracy * n_cancer_sample + accuracy_2 * n_microbial_sample) / (n_cancer_sample + n_microbial_sample)
     print('Recalls: ' + str(recalls))
     return roc_auc, accuracy, recalls, precisions, fscores
     # return roc_auc_macro, accuracy, recall, precision, fscore
-
 
 def multi_class_scores(bag_labels, bag_logits, class_labels):
     bag_labels = np.array(bag_labels)
@@ -384,6 +384,7 @@ def confusion_matrix(bag_labels, bag_pred, class_labels):
             
     y_true, y_pred = bag_labels, bag_pred
     num_classes = len(class_labels)
+    print(max(y_true), max(y_pred), num_classes)
 
     # 初始化混淆矩阵
     cm_manual = np.zeros((num_classes, num_classes), dtype=int)
