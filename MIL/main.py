@@ -103,9 +103,9 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     if args.datasets.lower() == 'gc_mtl':
         train_set = GcMTLDataset(train_p[k],train_l[k],root=args.dataset_root,num_task=args.num_task, \
                                  num_classes=args.num_classes,persistence=args.persistence, \
-                                     keep_same_psize=args.same_psize,is_train=True)
-        test_set = GcMTLDataset(test_p[k],test_l[k],root=args.dataset_root,num_task=args.num_task,num_classes=args.num_classes,persistence=args.persistence,keep_same_psize=args.same_psize)
-        val_set = GcMTLDataset(val_p[k],val_l[k],root=args.dataset_root,num_task=args.num_task,num_classes=args.num_classes,persistence=args.persistence,keep_same_psize=args.same_psize)
+                                     keep_same_psize=args.same_psize,is_train=True,fine_concat=args.fine_concat)
+        test_set = GcMTLDataset(test_p[k],test_l[k],root=args.dataset_root,num_task=args.num_task,num_classes=args.num_classes,persistence=args.persistence,keep_same_psize=args.same_psize,fine_concat=args.fine_concat)
+        val_set = GcMTLDataset(val_p[k],val_l[k],root=args.dataset_root,num_task=args.num_task,num_classes=args.num_classes,persistence=args.persistence,keep_same_psize=args.same_psize,fine_concat=args.fine_concat)
     else:
         train_set = C16Dataset(train_p[k],train_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,is_train=True)
         test_set = C16Dataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
@@ -132,7 +132,17 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
 
     # ***--->construct model
-    model = MIL_MTL(input_dim=args.input_dim, 
+    if args.mil_method == 'tma':
+        model = Model_V1(
+        in_dims=args.input_dim,
+        num_classes=args.num_classes,
+        depth=4,
+        num_heads=4,
+        proj_drop=0.02,
+        attn_drop=0.02,
+        drop_path=0.01,).to(device)
+    else:
+        model = MIL_MTL(input_dim=args.input_dim, 
                 num_classes=args.num_classes, 
                 num_task=args.num_task,
                 mil=args.mil_method,
@@ -209,8 +219,9 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         train_time_meter.update(end-start)
         
         # train_set acc
-        print('Info: Evaluation for train set')
-        val_loop(args,model,train_loader,device,criterion, early_stopping,epoch,test_mode=True,data_split='train')
+        if epoch % 5 == 0:
+            print('Info: Evaluation for train set')
+            val_loop(args,model,train_loader,device,criterion, early_stopping,epoch,test_mode=True,data_split='train')
         
         print('Info: Evaluation for val set')
         stop, aucs, acc, recs, precs, f1s, test_loss = val_loop(args,model,val_loader,device,criterion,\
@@ -314,6 +325,7 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
         optimizer.zero_grad()
 
         bag, label, task_id = data[0].to(device), data[1].to(device), data[2].to(device)  # [b,n,1024]
+        bag_mask = data[4].to(device)  # [b,n,25]
         batch_size=bag.size(0)
             
         with amp_autocast():
@@ -323,7 +335,10 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
                 bag = group_shuffle(bag,args.shuffle_group)
 
             # TODO 一阶段方法传入bag, task_id , 两阶段方法传入bag, mask 
-            train_logits = model(bag, task_id) # [B, sum_num_classes]
+            if args.mil_method == 'tma':
+                train_logits = model(bag, bag_mask)  # [B, sum_num_classes]
+            else:
+                train_logits = model(bag, task_id) # [B, sum_num_classes]
             # if args.loss != 'ce':
             #     train_logits = torch.sigmoid(train_logits)    
             
@@ -396,9 +411,13 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
     with torch.no_grad():
         for i, data in enumerate(loader):
             bag, label, task_id = data[0].to(device), data[1].to(device), data[2] # b*n*1024
+            bag_mask = data[4].to(device)  # [b,n,25]
             wsi_name = [os.path.basename(_) for _ in data[3]]
             
-            test_logits = model(bag, task_id)
+            if args.mil_method == 'tma':
+                test_logits = model(bag, bag_mask)
+            else:
+                test_logits = model(bag, task_id)
             batch_size = bag.size(0)
             bag_labels.extend(data[1])
             wsi_names.extend(wsi_name)
@@ -510,6 +529,7 @@ if __name__ == '__main__':
     parser.add_argument('--cv_fold', default=1, type=int, help='Number of cross validation fold [3]')
     parser.add_argument('--persistence', action='store_true', help='Load data into memory') 
     parser.add_argument('--same_psize', default=0, type=int, help='Keep the same size of all patches [0]')
+    parser.add_argument('--fine_concat', default=0, type=int, help='flatten the fine feature')
     parser.add_argument('--train_val', default=0, type=int, help='use train and val set to train the model')
 
     # Train
@@ -535,7 +555,7 @@ if __name__ == '__main__':
 
     # Model
     # mil meathod
-    parser.add_argument('--mil_method', default='abmil', type=str, help='Model name [abmil, transmil, dsmil, clam, linear]')
+    parser.add_argument('--mil_method', default='abmil', type=str, help='Model name [abmil, transmil, dsmil, clam, linear, tma]')
     parser.add_argument('--act', default='relu', type=str, help='Activation func in the projection head [gelu,relu]')
     parser.add_argument('--dropout', default=0.25, type=float, help='Dropout in the projection head')
     parser.add_argument('--da_act', default='relu', type=str, help='Activation func in the DAttention [gelu,relu]')

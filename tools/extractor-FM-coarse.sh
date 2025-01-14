@@ -20,6 +20,6 @@ python -m torch.distributed.launch --nproc_per_node=$GPU_NUMBERS \
             --ckp_path=$CKP_PATH \
             --target_patch_size 224 224 \
             --multi_gpu \
-            --batch_size=5 \
-            --num_workers=30 \
+            --batch_size=4 \
+            --num_workers=8 \
             # --only_load

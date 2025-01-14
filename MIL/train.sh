@@ -4,7 +4,7 @@ set -x
 
 # 前两个选项来选择 数据集和提取特征方式
 DATASET='TCTGC10k'
-FEATURES='gigapath-coarse'
+FEATURES='plip-fine'
 if [ "${DATASET}" = "TCTGC10k" ]; then
     TASK_CONFIG='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/configs/mh_9.yaml'
     LABEL_PATH="/data/wsi/TCTGC10k-labels/9_labels"
@@ -19,12 +19,13 @@ LOSS=${1:-'bce'} # ce, bce, softbce, ranking, aploss, focal
 NEG_WEIGHT=1
 NEG_MARGIN=0
 IMBALANCE_SAMPLER=0
-BATCH_SIZE=64
-INPUT_DIM=1536
+BATCH_SIZE=24 # 64 for coarse-abmil, 24 for fine-abmil, 2 for tma
+INPUT_DIM=512
 SAME_PSIZE=1000
 NONILM=2
-MIL_METHOD=abmil # abmil transmil transab
+MIL_METHOD=abmil # abmil transmil transab tma
 TRAIN_VAL=1
+FINE_CONCAT=1
 LR=$(echo "0.0002 * ${BATCH_SIZE}" | bc)
 # construct
 TITLE="${DATASET}_${FEATURES}_oh_5_${LOSS}_${BATCH_SIZE}b_${SAME_PSIZE}PSIZE_${IMBALANCE_SAMPLER}IS_${MIL_METHOD}"
@@ -44,6 +45,8 @@ python main.py  --loss ${LOSS} \
                 --mil_method ${MIL_METHOD} \
                 --label_path ${LABEL_PATH} \
                 --nonilm ${NONILM} \
+                --num_workers 24 \
+                --fine_concat ${FINE_CONCAT} \
                 --train_val ${TRAIN_VAL} \
                 # --wandb
                 # --eval_only

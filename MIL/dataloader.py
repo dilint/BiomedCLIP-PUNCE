@@ -184,7 +184,33 @@ class C16Dataset(Dataset):
 
     def __len__(self):
         return self.size
-
+    
+    def _pading_tensor(self, tensor):
+        """
+        为[N,M,C]的tensor进行padding，其中N为不定长，M，C为定长，使其变为[self.keep_same_psize,M,C]
+        参数:
+            tensor: [N,M,C]的tensor
+        返回:
+            padded_tensor: [self.keep_same_psize,M,C]的tensor
+            mask: [self.keep_same_psize, M]的mask，值为0或1，表示是否为有效数据
+        """
+        keep_same_psize = self.keep_same_psize
+        # 获取当前tensor的长度
+        N = tensor.shape[0]
+        # 创建一个1000x25x256的0矩阵
+        padded_tensor = torch.zeros((keep_same_psize, tensor.shape[1], tensor.shape[2]))
+        # 创建一个长度为1000的binary mask
+        mask = torch.zeros(keep_same_psize)
+        # 如果N小于1000，填充数据并设置mask
+        if N < keep_same_psize:
+            padded_tensor[:N] = tensor
+            mask[:N] = 1
+        else:  # 如果N大于1000，截断数据并设置mask
+            padded_tensor = tensor[:keep_same_psize]
+            mask = torch.ones(keep_same_psize)
+        mask = mask.unsqueeze(-1).expand(-1, padded_tensor.shape[1])
+        return padded_tensor, mask
+    
     def __getitem__(self, idx):
         """
         Args
@@ -200,16 +226,13 @@ class C16Dataset(Dataset):
                 dir_path = self.root
             file_path = os.path.join(dir_path, self.file_name[idx]+'.pt')
             features = torch.load(file_path, map_location='cpu')
-        if self.keep_same_psize>0:
-            patch_num_ = features.shape[0]
-            if patch_num_ > self.keep_same_psize:
-                features = features[:self.keep_same_psize]
-            elif patch_num_ < self.keep_same_psize:
-                # features 的维度可能是[N,C] 也可能是[N,M,C]，其中N不定长，M定长
-                features = torch.cat([features, torch.zeros(self.keep_same_psize-patch_num_, *features.shape[1:])], dim=0)
-                     
+        mask = None
+        if self.keep_same_psize > 0:
+            features, mask = self._pading_tensor(features)
+                    
         label = int(self.slide_label[idx])
-        return features, label, file_path
+        return features, label, file_path, mask
+    
     
 class GcMTLDataset(C16Dataset):
     def __init__(self, file_name, file_label,root,num_task,num_classes,persistence=False,keep_same_psize=0,is_train=False,fine_concat=False):
@@ -219,7 +242,7 @@ class GcMTLDataset(C16Dataset):
         self.fine_concat = fine_concat
         
     def __getitem__(self, idx):
-        features, label, file_path = super().__getitem__(idx)
+        features, label, file_path, mask = super().__getitem__(idx)
         tensor_num_classes = torch.tensor(self.num_classes)
         tensor_num_classes_cumsum = tensor_num_classes.cumsum(dim=0)
         # 第一个位置大于label的位置即为task_id
@@ -230,7 +253,7 @@ class GcMTLDataset(C16Dataset):
         
         if self.fine_concat:
             features = features.reshape(-1, features.shape[-1])
-        return features, label, task_id, file_path
+        return features, label, task_id, file_path, mask
     
     
 class NGCDatasetInfer(Dataset):
