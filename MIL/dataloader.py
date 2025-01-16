@@ -187,7 +187,7 @@ class C16Dataset(Dataset):
     
     def _pading_tensor(self, tensor):
         """
-        为[N,M,C]的tensor进行padding，其中N为不定长，M，C为定长，使其变为[self.keep_same_psize,M,C]
+        为[N,M,C]或者[N,C]的tensor进行padding，其中N为不定长，M，C为定长，使其变为[self.keep_same_psize,M,C]
         参数:
             tensor: [N,M,C]的tensor
         返回:
@@ -198,7 +198,7 @@ class C16Dataset(Dataset):
         # 获取当前tensor的长度
         N = tensor.shape[0]
         # 创建一个1000x25x256的0矩阵
-        padded_tensor = torch.zeros((keep_same_psize, tensor.shape[1], tensor.shape[2]))
+        padded_tensor = torch.zeros((keep_same_psize, *(tensor.shape[1:]))) 
         # 创建一个长度为1000的binary mask
         mask = torch.zeros(keep_same_psize)
         # 如果N小于1000，填充数据并设置mask
@@ -208,7 +208,8 @@ class C16Dataset(Dataset):
         else:  # 如果N大于1000，截断数据并设置mask
             padded_tensor = tensor[:keep_same_psize]
             mask = torch.ones(keep_same_psize)
-        mask = mask.unsqueeze(-1).expand(-1, padded_tensor.shape[1])
+        if len(tensor.shape) > 2:
+            mask = mask.unsqueeze(-1).expand(-1, padded_tensor.shape[1])
         return padded_tensor, mask
     
     def __getitem__(self, idx):

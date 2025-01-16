@@ -4,6 +4,8 @@ from sklearn.metrics import f1_score,recall_score, roc_curve
 from sklearn.metrics import accuracy_score, precision_score, roc_auc_score
 from torchmetrics.classification import BinarySpecificity, BinaryRecall
 from prettytable import PrettyTable
+from torch.nn.utils.rnn import pad_sequence
+import torch.nn.functional as F
 
 import torch
 import os
@@ -429,6 +431,58 @@ def calc_iou(a, b):
     IoU = intersection / ua
 
     return IoU
+
+
+def collate_fn_wsi(batch):
+    """
+    参数：
+        batch (list): features, label, task_id, file_path, mask [N, M 256]
+    返回:
+        padded_patches_tensor: [max_N, max_M, C]
+        masks_tensor: [max_N, Max_M]
+    """
+    wsis = [item[0] for item in batch] #each wsi is a list, contain N patches, each patch is a ndarray, with shape [M, 256]
+    max_N = min(max([len(wsi) for wsi in wsis]), 800)
+    max_M = max([max([patch.shape[0] for patch in wsi]) for wsi in wsis])
+
+    max_N = min(max([len(wsi) for wsi in wsis]), 800)
+    max_M = max([max([patch.shape[0] for patch in wsi]) for wsi in wsis])
+
+    padded_patches_lists = []
+    masks_lists = []
+    for wsi in wsis:
+        if len(wsi) > max_N:
+            wsi = wsi[:max_N] #大于max_N的进行截断
+        padded_patches = []
+        masks = []
+        for patch in wsi:
+            # 计算需要 padding 的数量
+            padding_size = max_M - patch.shape[0]
+            # 对 patch 进行 padding
+            
+            #padded_patch = F.pad(torch.tensor(patch, dtype=torch.float32), (0, 0, padding_size, 0), mode='constant', value=0)
+            #padded_patch = F.pad(patch.clone().detach(), (0, 0, padding_size, 0), mode='constant', value=0)
+            padded_patch = F.pad(patch.clone(), (0, 0, padding_size, 0), mode='constant', value=0)
+            padded_patches.append(padded_patch)
+            # 创建 mask，真实数据部分为 1，padding 部分为 0
+            mask = torch.ones(patch.shape[0], dtype=torch.float32)
+            if padding_size > 0:
+                mask = torch.cat([mask, torch.zeros(padding_size, dtype=torch.float32)], dim=0)
+            masks.append(mask)
+        # 将 padded patches 和 masks 转换为张量
+        padded_patches_lists.append(torch.stack(padded_patches))
+        masks_lists.append(torch.stack(masks))
+        # padded_patches = [torch.nn.functional.pad(torch.tensor(patch, dtype=torch.float32), (0, 0, 0, max_M - patch.shape[0]), "constant", 0) for patch in wsi]
+        # padded_patches_lists.append(padded_patches)
+
+    features = pad_sequence(padded_patches_lists, batch_first=True, padding_value=0) # shape [B, max_N, max_M, 256]
+    mask = pad_sequence(masks_lists, batch_first=True, padding_value=0) # shape [B, max_N, max_M]
+    
+    label = torch.tensor([item[1] for item in batch])
+    task_id = torch.tensor([item[2] for item in batch])
+    file_path = [item[3] for item in batch]
+    
+    return features, label, task_id, file_path, mask
 
 
 def cosine_scheduler(base_value, final_value, epochs, niter_per_ep, warmup_epochs=0, start_warmup_value=0):

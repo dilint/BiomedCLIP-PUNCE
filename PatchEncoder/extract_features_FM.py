@@ -129,30 +129,36 @@ def compute_w_loader(wsi_dir,
         print('processing {}: total of {} batches'.format(wsi_dir,len(loader)))
     
     mode = 'w'
-    for i, batch in enumerate(loader):
-        if args.only_load:
-            return
-        
-        if len(batch) == 0:
-            continue
-        with torch.no_grad():
-            if i % print_every == 0:
-                print('batch {}/{}, {} files processed'.format(i, len(loader), i * batch_size))
-            if args.fine_grained:
-                M = batch.shape[1]
-                # [N,M,3,224,224]->[N*M,3,224,224]
-                batch = batch.reshape(-1,batch.shape[2],batch.shape[3],batch.shape[4])
-            batch = batch.to(device)
-            features = model(batch)
-            if isinstance(features, tuple):
-                features = features[0]
-            if args.fine_grained:
-                # [N*M,C] -> [N,M,C]
-                features = features.reshape(-1, M,features.shape[1])
-            features = features.cpu().numpy()
-            asset_dict = {'features': features}
-            save_hdf5(output_path, asset_dict, attr_dict=None, mode=mode)
-            mode = 'a'
+    try:
+        for i, batch in enumerate(loader):
+            if args.only_load:
+                return
+            
+            if len(batch) == 0:
+                continue
+            with torch.no_grad():
+                if i % print_every == 0:
+                    print('batch {}/{}, {} files processed'.format(i, len(loader), i * batch_size))
+                if args.fine_grained:
+                    M = batch.shape[1]
+                    # [N,M,3,224,224]->[N*M,3,224,224]
+                    batch = batch.reshape(-1,batch.shape[2],batch.shape[3],batch.shape[4])
+                batch = batch.to(device)
+                features = model(batch)
+                if isinstance(features, tuple):
+                    features = features[0]
+                if args.fine_grained:
+                    # [N*M,C] -> [N,M,C]
+                    features = features.reshape(-1, M,features.shape[1])
+                features = features.cpu().numpy()
+                asset_dict = {'features': features}
+                save_hdf5(output_path, asset_dict, attr_dict=None, mode=mode)
+                mode = 'a'
+    except Exception as e:
+        print('**** {} error {}'.format(wsi_dir, e))
+        with open(f'/data/wsi/TCTGC50k/error_{args.local_rank}.txt', 'a') as f:
+            f.write('**** {} error {}'.format(wsi_dir, e))
+        return False
     return output_path
     
 def main():
@@ -315,7 +321,7 @@ def main():
         
         output_file_path = os.path.join(output_path_h5, wsi_name+'.h5')
         time_start = time.time()
-        compute_w_loader(wsi_dir,
+        result = compute_w_loader(wsi_dir,
                          output_file_path,
                          model,
                          preprocess_val,
@@ -324,6 +330,8 @@ def main():
         time_elapesd = time.time() - time_start
         print('\ncomputing features for {} took {} s'.format(output_path, time_elapesd))
 
+        if not result:
+            continue
         if args.only_load:
             continue
         

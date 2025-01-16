@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=2,3
 cd 'PatchEncoder'
 
 FEAT_DIR='plip-fine' # gigapath1
 BASE_MODEL='plip' # 'biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2', 'gigapath', 'mae'
 DATASET='gc' # 'ngc', 'ubc', 'gc', 'fnac', 'gc2625'
 
-GPU_NUMBERS=1
+GPU_NUMBERS=2
 WSI_ROOT='/data/wsi/TCTGC50k/TCTGC50k-volume5' 
 # WSI_ROOT='/home1/wsi/gc' 
 OUTPUT_PATH='/data/wsi/TCTGC10k-features'

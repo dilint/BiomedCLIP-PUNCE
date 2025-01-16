@@ -8,7 +8,7 @@ import pandas as pd
 from dataloader import *
 from model import *
 from loss import *
-from torch.utils.data import DataLoader, RandomSampler
+from torch.utils.data import DataLoader, RandomSampler, default_collate
 import argparse, os
 from torch.nn.functional import one_hot
 from contextlib import suppress
@@ -95,6 +95,10 @@ def main(args):
 
 def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     # --->initiation
+    if args.keep_psize_collate:
+        collate_fn = collate_fn_wsi
+    else:
+        collate_fn = default_collate
     amp_autocast = torch.cuda.amp.autocast if args.amp else suppress
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     acs,pre,rec,fs,auc,te_auc,te_fs = ckc_metric
@@ -104,7 +108,9 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         train_set = GcMTLDataset(train_p[k],train_l[k],root=args.dataset_root,num_task=args.num_task, \
                                  num_classes=args.num_classes,persistence=args.persistence, \
                                      keep_same_psize=args.same_psize,is_train=True,fine_concat=args.fine_concat)
-        test_set = GcMTLDataset(test_p[k],test_l[k],root=args.dataset_root,num_task=args.num_task,num_classes=args.num_classes,persistence=args.persistence,keep_same_psize=args.same_psize,fine_concat=args.fine_concat)
+        test_set = GcMTLDataset(test_p[k],test_l[k],root=args.dataset_root,num_task=args.num_task, \
+            num_classes=args.num_classes,persistence=args.persistence,keep_same_psize=args.same_psize,\
+                fine_concat=args.fine_concat)
         val_set = GcMTLDataset(val_p[k],val_l[k],root=args.dataset_root,num_task=args.num_task,num_classes=args.num_classes,persistence=args.persistence,keep_same_psize=args.same_psize,fine_concat=args.fine_concat)
     else:
         train_set = C16Dataset(train_p[k],train_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,is_train=True)
@@ -124,12 +130,12 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         generator = torch.Generator()
         generator.manual_seed(big_seed_list)  
         # TODO 增添补齐的collect_fn
-        train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers,generator=generator)
+        train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers,generator=generator,collate_fn=collate_fn)
     else:
-        train_loader = DataLoader(train_set, batch_size=args.batch_size, sampler=RandomSampler(train_set), num_workers=args.num_workers)
+        train_loader = DataLoader(train_set, batch_size=args.batch_size, sampler=RandomSampler(train_set), num_workers=args.num_workers,collate_fn=collate_fn)
         
-    val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
-    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+    val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,collate_fn=collate_fn)
+    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,collate_fn=collate_fn)
 
     # ***--->construct model
     if args.mil_method == 'tma':
@@ -226,11 +232,11 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         print('Info: Evaluation for val set')
         stop, aucs, acc, recs, precs, f1s, test_loss = val_loop(args,model,val_loader,device,criterion,\
             early_stopping,epoch,data_split='val')
-
+        
         if not args.no_log:
             print('\r Epoch [%d/%d] train loss: %.1E, test loss: %.1E, time: %.3f(%.3f)' % 
         (epoch+1, args.num_epoch, train_loss, test_loss, train_time_meter.val,train_time_meter.avg))
-           
+            
         auc_mean, acc_mean, rec_mean, prec_mean, f1_mean = np.mean(aucs), acc, np.mean(recs), np.mean(precs), np.mean(f1s)
         if rec_mean > opt_re and epoch >= args.save_best_model_stage*args.num_epoch:
             opt_auc, opt_ac, opt_rec, opt_prec, opt_f1, opt_epoch = auc_mean, acc_mean, rec_mean, prec_mean, f1_mean, epoch
@@ -421,6 +427,7 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
             batch_size = bag.size(0)
             bag_labels.extend(data[1])
             wsi_names.extend(wsi_name)
+            test_logits = test_logits.detach()
             
             if args.loss in ['ce']:
                 test_loss = criterion(test_logits.view(batch_size,-1),label)    
@@ -578,6 +585,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default='./output-model', help='Output path')
     parser.add_argument('--task_config', type=str, default='./configs/oh_5.yaml', help='Task config path')
     parser.add_argument('--eval_only', action='store_true', help='Only evaluate')
+    parser.add_argument('--keep_psize_collate', type=float, default=0, help='use collate to keep patch size')
     parser.add_argument('--threshold', default=0.3, type=float, help='threshold for evaluation')
     
     
