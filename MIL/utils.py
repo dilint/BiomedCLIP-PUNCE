@@ -442,10 +442,7 @@ def collate_fn_wsi(batch):
         masks_tensor: [max_N, Max_M]
     """
     wsis = [item[0] for item in batch] #each wsi is a list, contain N patches, each patch is a ndarray, with shape [M, 256]
-    max_N = min(max([len(wsi) for wsi in wsis]), 800)
-    max_M = max([max([patch.shape[0] for patch in wsi]) for wsi in wsis])
-
-    max_N = min(max([len(wsi) for wsi in wsis]), 800)
+    max_N = min(max([len(wsi) for wsi in wsis]), 1000)
     max_M = max([max([patch.shape[0] for patch in wsi]) for wsi in wsis])
 
     padded_patches_lists = []
