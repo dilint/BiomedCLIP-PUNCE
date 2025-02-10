@@ -4,6 +4,10 @@ import argparse, os
 from torch.utils.data import DataLoader, RandomSampler
 from modules import attmil,clam,mhim,dsmil,transmil,mean_max
 from dataloader import *
+import sys
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(parent_dir)
+from PatchEncoder.models.model_adapter import *
 
 def main(args):
     torch.backends.cudnn.enabled = False
@@ -95,10 +99,19 @@ def main(args):
     elif args.model == 'maxmil':
         model = mean_max.MaxMIL(n_classes=args.n_classes,dropout=args.dropout,act=args.act,input_dim=args.input_dim).to(device)
 
+    if not args.model_adapter:
+        model_adapter = nn.Identity()
+    else:
+        if args.model_adapter == 'linear':
+            model_adapter = LinearAdapter(input_dim=args.input_dim).to(device)
+        model_adapter.load_state_dict(torch.load(args.model_adapter_weight)['adapter'], strict=True)
+        for params in model_adapter.parameters():
+            params.requires_grad = False
+            
     best_std = torch.load(os.path.join(args.ckp_path, 'fold_{fold}_model_best_auc.pt'.format(fold=k)))
     info = model.load_state_dict(best_std['model'])
     print(info)
-    accuracy, auc_value, precision, recall, specificity, fscore = test_loop(args,model,test_loader,device,False)
+    accuracy, auc_value, precision, recall, specificity, fscore = test_loop(args,model,model_adapter,test_loader,device,False)
     print(f'''
           accuracy: {accuracy},
           auc_value: {auc_value},
@@ -112,7 +125,7 @@ def main(args):
         sen_h = test_loop(args,model,test_h_loader,device, c_h)
         print(f'sen_c: {sen_c},\n sen_h: {sen_h}')
         
-def test_loop(args,model,loader,device,c_h):
+def test_loop(args,model,model_adapter,loader,device,c_h):
     model.eval()
     bag_logits, bag_labels=[], []
 
@@ -132,6 +145,7 @@ def test_loop(args,model,loader,device,c_h):
                 bag=data[0].to(device)  # b*n*1024
                 batch_size=bag.size(0)
 
+            bag = model_adapter(bag)
             label=data[1].to(device)
             if args.model in ('mhim','pure'):
                 test_logits = model.forward_test(bag)
@@ -247,6 +261,8 @@ if __name__ == '__main__':
     parser.add_argument('--c_h', action='store_true')
     parser.add_argument('--output_auc', action='store_true')
     parser.add_argument('--ckp_path', type=str, default='mil-methods/output-model/mil-methods/biomed1-meanmil-tct-trainval', help='Checkpoint path')
+    parser.add_argument('--model_adapter', type=str, default=None, help='Adapter model')
+    parser.add_argument('--model_adapter_weight', type=str, help='adapter model path')
     
     args = parser.parse_args()
     main(args)
