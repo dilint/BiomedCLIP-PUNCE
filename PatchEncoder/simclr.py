@@ -468,7 +468,7 @@ if __name__ == '__main__':
     # model
     parser.add_argument('--backbone', type=str, default='vitB', choices=['resnet50', 'biomedclip', 'resnet18', 'resnet34', 'plip', 'clip', 'vitB'])
     parser.add_argument('--without_head', action='store_true')
-    parser.add_argument('--not_frozen', type=float, default=1)
+    parser.add_argument('--not_frozen', type=float, default=0)
     # parser.add_argument('--proj_hidden_dim', default=128, type=int, help='dimension of projected features')
     
     # train 
