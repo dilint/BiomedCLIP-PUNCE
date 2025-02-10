@@ -3,6 +3,7 @@ import torch
 import wandb
 import numpy as np
 from copy import deepcopy
+import pandas as pd
 import torch.nn as nn
 from dataloader import *
 from torch.utils.data import DataLoader, RandomSampler
@@ -18,7 +19,11 @@ from timm.models import  model_parameters
 from collections import OrderedDict
 
 from utils import *
-
+import sys
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(parent_dir)
+from PatchEncoder.models.model_adapter import *
+ 
 def main(args):
     # set seed
     seed_torch(args.seed)
@@ -40,32 +45,21 @@ def main(args):
         p = p[index]
         l = l[index]
         
-    elif args.datasets.lower() == 'ngc' or 'gc' or 'fnac':
-        train_p, train_l, test_p, test_l, val_p, val_l = [], [], [], [], [], []
-        with open(args.train_label_path, 'r') as file:
-            lines = file.readlines()
-            for line in lines:
-                train_p.append(line.split(',')[0])
-                train_l.append(line.split(',')[1])
-        train_p = [np.array(train_p)]
-        train_l = [np.array(train_l)]
-        with open(args.val_label_path, 'r') as file:
-            lines = file.readlines()
-            for line in lines:
-                val_p.append(line.split(',')[0])
-                val_l.append(line.split(',')[1])
-        val_p = [np.array(val_p)]
-        val_l = [np.array(val_l)]
-        with open(args.test_label_path, 'r') as file:
-            lines = file.readlines()
-            for line in lines:
-                test_p.append(line.split(',')[0])
-                test_l.append(line.split(',')[1])
-        test_p = [np.array(test_p)]
-        test_l = [np.array(test_l)]
-
+    elif args.datasets.lower() in ['ngc', 'gc', 'fnac', 'tctgc2625']:
+        ps, ls = [], []
+        label_paths = [args.train_label_path, args.val_label_path, args.test_label_path]
+        for label_path in label_paths:
+            df = pd.read_csv(label_path)
+            p, l = df.iloc[:, 0].values, df.iloc[:, 1].values
+            ps.append(p)
+            ls.append(l)
+        train_p, val_p, test_p = ps
+        train_l, val_l, test_l = ls
+        
     if args.cv_fold > 1:
-        train_p, train_l, test_p, test_l,val_p,val_l = get_kflod(args.cv_fold, p, l,args.val_ratio)
+        train_p, train_l, test_p, test_l, val_p, val_l = get_kflod(args.cv_fold, p, l,args.val_ratio)
+    else:
+        train_p, train_l, test_p, test_l, val_p, val_l = [train_p], [train_l], [test_p], [test_l], [val_p], [val_l]
     
     acs, pre, rec,fs,auc,te_auc,te_fs=[],[],[],[],[],[],[]
     ckc_metric = [acs, pre, rec, fs, auc, te_auc, te_fs]
@@ -137,13 +131,13 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
             val_set = test_set
             
     # the split of ngc has been done 
-    elif args.datasets.lower() == 'ngc' or 'fnac':
+    elif args.datasets.lower() in ['ngc', 'fnac']:
 
         train_set = C16Dataset(train_p[k],train_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,is_train=True)
         test_set = C16Dataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
         val_set = C16Dataset(val_p[k],val_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
 
-    elif args.datasets.lower() == 'gc':
+    elif args.datasets.lower() in ['gc', 'tctgc2625']:
         
         train_set = GcDataset(train_p[k],train_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,high_weight=args.high_weight,is_train=True)
         test_set = GcDataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,high_weight=args.high_weight)
@@ -283,6 +277,16 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     else:
         model_tea = None
 
+    # TODO 使用transformer层分支
+    if not args.model_adapter:
+        model_adapter = nn.Identity()
+    else:
+        if args.model_adapter == 'linear':
+            model_adapter = LinearAdapter(input_dim=args.input_dim).to(device)
+        model_adapter.load_state_dict(torch.load(args.model_adapter_weight)['adapter'], strict=True)
+        for params in model_adapter.parameters():
+            params.requires_grad = False
+            
     if args.loss == 'bce':
         criterion = nn.BCEWithLogitsLoss()
     elif args.loss == 'ce':
@@ -339,12 +343,12 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     train_time_meter = AverageMeter()
 
     for epoch in range(epoch_start, args.num_epoch):
-        train_loss,start,end = train_loop(args,model,model_tea,train_loader,optimizer,device,amp_autocast,criterion,loss_scaler,scheduler,k,mm_sche,epoch)
+        train_loss,start,end = train_loop(args,model,model_tea,model_adapter,train_loader,optimizer,device,amp_autocast,criterion,loss_scaler,scheduler,k,mm_sche,epoch)
         train_time_meter.update(end-start)
-        stop,accuracy, auc_value, precision, recall, fscore, test_loss = val_loop(args,model,val_loader,device,criterion,early_stopping,epoch,model_tea)
+        stop,accuracy, auc_value, precision, recall, fscore, test_loss = val_loop(args,model,model_adapter,val_loader,device,criterion,early_stopping,epoch,model_tea)
 
         if model_tea is not None:
-            _,accuracy_tea, auc_value_tea, precision_tea, recall_tea, fscore_tea, test_loss_tea = val_loop(args,model_tea,val_loader,device,criterion,None,epoch,model_tea)
+            _,accuracy_tea, auc_value_tea, precision_tea, recall_tea, fscore_tea, test_loss_tea = val_loop(args,model_tea,model_adapter,val_loader,device,criterion,None,epoch,model_tea)
             if args.wandb:
                 rowd = OrderedDict([
                     ("val_acc_tea",accuracy_tea),
@@ -369,7 +373,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
 
         if args.always_test:
 
-            _te_accuracy, _te_auc_value, _te_precision, _te_recall, _te_fscore,_te_test_loss_log = val_loop(args,model,test_loader,device,criterion,model_tea,test_mode=True)
+            _te_accuracy, _te_auc_value, _te_precision, _te_recall, _te_fscore,_te_test_loss_log = val_loop(args,model,model_adapter,test_loader,device,criterion,model_tea,test_mode=True)
             
             if args.wandb:
                 rowd = OrderedDict([
@@ -396,7 +400,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
                     wandb.log(rowd)
             
             if model_tea is not None:
-                _te_tea_accuracy, _te_tea_auc_value, _te_tea_precision, _te_tea_recall, _te_tea_fscore,_te_tea_test_loss_log = val_loop(args,model_tea,test_loader,device,criterion,model_tea,test_mode=True)
+                _te_tea_accuracy, _te_tea_auc_value, _te_tea_precision, _te_tea_recall, _te_tea_fscore,_te_tea_test_loss_log = val_loop(args,model_tea,model_adapter,test_loader,device,criterion,model_tea,test_mode=True)
             
                 if args.wandb:
                     rowd = OrderedDict([
@@ -503,7 +507,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
             info = model_tea.load_state_dict(best_std['teacher'])
             print(info)
 
-    accuracy, auc_value, precision, recall, fscore,test_loss_log = val_loop(args,model,test_loader,device,criterion,model_tea,epoch,test_mode=True)
+    accuracy, auc_value, precision, recall, fscore,test_loss_log = val_loop(args,model,model_adapter,test_loader,device,criterion,model_tea,epoch,test_mode=True)
     
     if args.wandb:
         wandb.log({
@@ -528,7 +532,7 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         
     return [acs,pre,rec,fs,auc,te_auc,te_fs]
 
-def train_loop(args,model,model_tea,loader,optimizer,device,amp_autocast,criterion,loss_scaler,scheduler,k,mm_sche,epoch):
+def train_loop(args,model,model_tea,model_adapter,loader,optimizer,device,amp_autocast,criterion,loss_scaler,scheduler,k,mm_sche,epoch):
     start = time.time()
     loss_cls_meter = AverageMeter()
     loss_cl_meter = AverageMeter()
@@ -538,8 +542,8 @@ def train_loop(args,model,model_tea,loader,optimizer,device,amp_autocast,criteri
     train_loss_log = 0.
     model.train()
     
-    n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    num_total_param = sum(p.numel() for p in model.parameters())
+    n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad) + sum(p.numel() for p in model_adapter.parameters() if p.requires_grad)
+    num_total_param = sum(p.numel() for p in model.parameters()) + sum(p.numel() for p in model_adapter.parameters())
     print('Number of total parameters: {}, tunable parameters: {}'.format(num_total_param, n_parameters))\
     
     if model_tea is not None:
@@ -556,7 +560,9 @@ def train_loop(args,model,model_tea,loader,optimizer,device,amp_autocast,criteri
         else:
             bag=data[0].to(device)  # b*n*1024
             batch_size=bag.size(0)
-            
+
+        bag = model_adapter(bag)
+
         label=data[1].to(device)
         
         with amp_autocast():
@@ -647,7 +653,7 @@ def train_loop(args,model,model_tea,loader,optimizer,device,amp_autocast,criteri
     
     return train_loss_log,start,end
 
-def val_loop(args,model,loader,device,criterion,early_stopping,epoch,model_tea=None,test_mode=False):
+def val_loop(args,model,model_adapter,loader,device,criterion,early_stopping,epoch,model_tea=None,test_mode=False):
     if model_tea is not None:
         model_tea.eval()
     model.eval()
@@ -670,6 +676,8 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,model_tea=N
                 bag=data[0].to(device)  # b*n*1024
                 batch_size=bag.size(0)
 
+            bag = model_adapter(bag)
+            
             label=data[1].to(device)
             if args.model in ('mhim','pure'):
                 test_logits = model.forward_test(bag)
@@ -719,12 +727,13 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,model_tea=N
         return stop,accuracy, auc_value, precision, recall, fscore,loss_cls_meter.avg
 
 if __name__ == '__main__':
+    
     parser = argparse.ArgumentParser(description='MIL Training Script')
 
     # Dataset 
-    parser.add_argument('--datasets', default='gc', type=str, help='[camelyon16, tcga, ngc, gc, fnac]')
+    parser.add_argument('--datasets', default='gc', type=str, help='[camelyon16, tcga, ngc, gc, fnac, TCTGC2625]')
     parser.add_argument('--dataset_root', default='/home1/wsi/gc-all-features/frozen/plip1', type=str, help='Dataset root path')
-    parser.add_argument('--label_path', default='../datatools/gc/labels', type=str, help='label of train dataset')
+    parser.add_argument('--label_path', default='../datatools/TCTGC2625/labels', type=str, help='label of train dataset')
     parser.add_argument('--tcga_max_patch', default=-1, type=int, help='Max Number of patch in TCGA [-1]')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
     parser.add_argument('--fix_train_random', action='store_true', help='Fix random seed of Training')
@@ -803,6 +812,8 @@ if __name__ == '__main__':
     parser.add_argument('--num_workers', default=2, type=int, help='Number of workers in the dataloader')
     parser.add_argument('--no_log', action='store_true', help='Without log')
     parser.add_argument('--model_path', type=str, default='output-model', help='Output path')
+    parser.add_argument('--model_adapter', type=str, default=None, help='Adapter model')
+    parser.add_argument('--model_adapter_weight', type=str, help='adapter model path')
 
     args = parser.parse_args()
     if args.train_val:

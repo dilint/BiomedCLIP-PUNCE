@@ -18,10 +18,11 @@ from torchvision import transforms
 # from torchinfo import summary
 
 from models.model_simclr import SimCLR, SimCLR_custome
-from models.model_backbone import ResnetBackbone, BiomedclipBackbone, ClipBackbone, PlipBackbone
+from models.model_backbone import ResnetBackbone, BiomedclipBackbone, ClipBackbone, PlipBackbone, CustomeVitBase
 from models.model_adapter import LinearAdapter
 from utils.utils import seed_torch
 
+import time
 from tqdm import tqdm
 import os
 import argparse
@@ -290,6 +291,9 @@ def train(args) -> None:
     elif args.backbone == 'plip':
         backbone = PlipBackbone()
         input_dim = 512
+    elif args.backbone == 'vitB':
+        backbone = CustomeVitBase()
+        input_dim = 512
     preprocess_val = backbone.preprocess_val
     
     train_transform = transforms.Compose([transforms.RandomResizedCrop(224),
@@ -326,6 +330,7 @@ def train(args) -> None:
                                 batch_size=args.batch_size,
                                 shuffle=False,
                                 pin_memory=True,
+                                # persistent_workers=True,
                                 num_workers=args.workers,
                                 sampler=train_sampler,
                                 generator=generator)
@@ -395,7 +400,12 @@ def train(args) -> None:
         # train_loader.sampler.set_epoch(epoch)
         loss_meter = AverageMeter("SimCLR_loss")
         train_bar = tqdm(train_loader)
+        last_time = time.time()
         for x, y in train_bar:
+            # end_time = time.time()
+            # print("Data loading time: ", end_time - last_time)
+            # last_time = end_time
+            
             sizes = x.size()
             x = x.view(sizes[0] * 2, sizes[2], sizes[3], sizes[4]).cuda(non_blocking=True)
 
@@ -406,7 +416,7 @@ def train(args) -> None:
                 loss = infonce(rep, args.temperature)
             else:
                 loss = punce(rep, y, args.prior, args.temperature)
-                
+            
             loss.backward()
             optimizer.step()
             scheduler.step()
@@ -451,20 +461,20 @@ if __name__ == '__main__':
     # dataset
     parser.add_argument('--dataset', type=str, default='gc', choices=['cifar10', 'ngc', 'gc', 'fnac'])
     parser.add_argument('--load_cpu', action='store_true')
-    parser.add_argument('--data_dir', type=str, default='/home1/wsi/gc-filter/filter-images/plip1-meanmil-50')
-    parser.add_argument('--train_label_path', type=str, default='../datatools/gc/labels/train_label.csv')
+    parser.add_argument('--data_dir', type=str, default='/home1/wsi/gc-filter/filter-images/biomed1-meanmil')
+    parser.add_argument('--train_label_path', type=str, default='../datatools/TCTGC2625/labels/train_label.csv')
     # parser.add_argument('--target_patch_size', type=int, nargs='+', default=(1333, 800))
     
     # model
-    parser.add_argument('--backbone', type=str, default='biomedclip', choices=['resnet50', 'biomedclip', 'resnet18', 'resnet34', 'plip', 'clip'])
+    parser.add_argument('--backbone', type=str, default='vitB', choices=['resnet50', 'biomedclip', 'resnet18', 'resnet34', 'plip', 'clip', 'vitB'])
     parser.add_argument('--without_head', action='store_true')
-    parser.add_argument('--not_frozen', action='store_true')
+    parser.add_argument('--not_frozen', type=float, default=1)
     # parser.add_argument('--proj_hidden_dim', default=128, type=int, help='dimension of projected features')
     
     # train 
     parser.add_argument('--seed', default=2024, type=int)
-    parser.add_argument('--batch_size', default=256, type=int)
-    parser.add_argument('--workers', default=4, type=int)
+    parser.add_argument('--batch_size', default=16, type=int)
+    parser.add_argument('--workers', default=0, type=int)
     parser.add_argument('--epochs', default=200, type=int)
     parser.add_argument('--log_interval', default=10, type=int)
     

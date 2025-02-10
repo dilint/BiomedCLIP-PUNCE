@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
 from einops import repeat
-from nystrom_attention import NystromAttention
+from .nystrom_attention import NystromAttention
 
-from emb_position import *
+from .emb_position import *
 
 class TransLayer(nn.Module):
     def __init__(self, norm_layer=nn.LayerNorm, dim=512,head=8):

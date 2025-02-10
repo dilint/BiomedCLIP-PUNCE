@@ -6,9 +6,10 @@ import timm
 import torch.nn.functional as F
 from torchvision import models, transforms
 from torchsummary import summary
-import open_clip
+import open_clip 
 from transformers import CLIPModel, CLIPProcessor, ViTMAEModel
-
+from open_clip.timm_model import TimmModel
+import timm
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152']
@@ -180,20 +181,38 @@ class MaeBackbone(nn.Module):
         features = torch.mean(model(x).last_hidden_state, dim=1)
         return features
 
-if __name__ == '__main__':
-    # tmp_i = torch.randn((1,3,224,224)).to('cuda')
-    # model = Dinov2Backbone()
-    # model.to('cuda')
-    # model.eval()
-    
-    model = PlipBackbone()
-    tmp_model = nn.Sequential(
-        model.model.vision_model,
-        model.model.visual_projection
-    )
-    print(tmp_model)
-    tmp_model.eval()
-    tmp_model.to('cuda')
-    # print(model(tmp_i).shape)
-    print(summary(tmp_model, (3,224,224)))
 
+class CustomeVitBase(nn.Module):
+    def __init__(self):
+        super(CustomeVitBase, self).__init__()
+        timm_model_name = 'vit_base_patch16_224'
+        timm_model_pretrained = False
+        timm_pool = ""
+        timm_proj = 'linear'
+        image_size = 224
+        embed_dim=512
+        model = TimmModel(
+            timm_model_name,
+            embed_dim,
+            pretrained=timm_model_pretrained,
+            pool=timm_pool,
+            proj=timm_proj,
+            image_size=image_size,
+        )
+        # model = timm.create_model("vit_base_patch16_224", pretrained=True, num_classes=0)
+        self.model = model
+        self.preprocess_val = None
+
+    def forward(self, x):
+        features = self.model(x)
+        features = features / features.norm(p=2, dim=-1, keepdim=True)
+        return features
+    
+
+if __name__ == '__main__':
+
+    model1 = CustomeVitBase().model
+    img = torch.rand(1,3,224,224)
+    f = model1(img)
+    print(f.shape)
+    

@@ -327,9 +327,14 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
     if not args.no_log:
         print('Number of total parameters: {}, tunable parameters: {}'.format(num_total_param, n_parameters))
     
+    last_time = time.time()
     for i, data in enumerate(loader):
         optimizer.zero_grad()
 
+        # now_time = time.time()
+        # print(f'数据加载时间：Time elapsed: {now_time - last_time:.2f} seconds')
+        # last_time = now_time
+        
         bag, label, task_id = data[0].to(device), data[1].to(device), data[2].to(device)  # [b,n,1024]
         bag_mask = data[4].to(device)  # [b,n,25]
         batch_size=bag.size(0)
@@ -345,6 +350,11 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
                 train_logits = model(bag, bag_mask)  # [B, sum_num_classes]
             else:
                 train_logits = model(bag, task_id) # [B, sum_num_classes]
+                
+            # now_time = time.time()
+            # print(f'模型前向推理时间：Time elapsed: {now_time - last_time:.2f} seconds')
+            # last_time = now_time
+            
             # if args.loss != 'ce':
             #     train_logits = torch.sigmoid(train_logits)    
             
@@ -356,6 +366,10 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
                 logit_loss = criterion.apply(train_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=sum_num_classes).squeeze(1).float())
             assert not torch.isnan(logit_loss)
 
+            # now_time = time.time()
+            # print(f'损失计算时间：Time elapsed: {now_time - last_time:.2f} seconds')
+            # last_time = now_time
+            
         train_loss = logit_loss
 
         train_loss = train_loss / args.accumulation_steps
@@ -369,6 +383,10 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
             optimizer.step()
             if args.lr_supi and scheduler is not None:
                 scheduler.step()
+                
+            # now_time = time.time()
+            # print(f'反向推理时间：Time elapsed: {now_time - last_time:.2f} seconds')
+            # last_time = now_time
             
         loss_cls_meter.update(logit_loss,1)
 
@@ -579,7 +597,7 @@ if __name__ == '__main__':
     parser.add_argument('--log_iter', default=100, type=int, help='Log Frequency')
     parser.add_argument('--amp', action='store_true', help='Automatic Mixed Precision Training')
     parser.add_argument('--wandb', action='store_true', help='Weight&Bias')
-    parser.add_argument('--num_workers', default=16, type=int, help='Number of workers in the dataloader')
+    parser.add_argument('--num_workers', default=0, type=int, help='Number of workers in the dataloader')
     parser.add_argument('--no_log', action='store_true', help='Without log')
     parser.add_argument('--nonilm', type=float, default=0, help='no nilm')
     parser.add_argument('--model_path', type=str, default='./output-model', help='Output path')
