@@ -299,7 +299,8 @@ def main():
     if args.with_adapter:
         adapter = LinearAdapter(input_dim)
         ckp = torch.load(args.ckp_path)
-        adapter.load_state_dict(ckp['adapter'])
+        info = adapter.load_state_dict(ckp['adapter'])
+        print(info)
         model = nn.Sequential(backbone, adapter).to(device)
     else:
         model = nn.Sequential(backbone).to(device)
