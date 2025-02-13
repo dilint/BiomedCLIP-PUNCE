@@ -183,6 +183,7 @@ def main():
     # model options
     parser.add_argument('--base_model', default='gigapath', type=str, choices=['biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2', 'gigapath'])
     parser.add_argument('--with_adapter', action='store_true')
+    parser.add_argument('--backbone_weight_path', type=str, default=None)
     parser.add_argument('--ckp_path', type=str, default=None)
     parser.add_argument('--without_head', action='store_true')
     parser.add_argument('--default_preprocess', action='store_true')
@@ -296,11 +297,16 @@ def main():
             
     print('load backbone successfully')
     
+    if args.backbone_weight_path:
+        backbone_ckp = torch.load(args.backbone_weight_path)
+        info = backbone.load_state_dict(backbone_ckp['model'])
+        print('backbone weight load:' + str(info))
+        
     if args.with_adapter:
         adapter = LinearAdapter(input_dim)
         ckp = torch.load(args.ckp_path)
         info = adapter.load_state_dict(ckp['adapter'])
-        print(info)
+        print('adapter weight load:' + str(info))
         model = nn.Sequential(backbone, adapter).to(device)
     else:
         model = nn.Sequential(backbone).to(device)

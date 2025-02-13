@@ -3,8 +3,8 @@
 set -x
 
 # 前两个选项来选择 数据集和提取特征方式
-DATASET='TCTGC10k'
-FEATURES='plip-fine' # plip-fine, plip-coarse, rtdetr
+DATASET='TCTGC2625' # TCTGC10k, TCTGC2625
+FEATURES='resnet50-tune' # plip-fine, plip-coarse, rtdetr
 if [ "${DATASET}" = "TCTGC10k" ]; then
     TASK_CONFIG='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/configs/mh_9.yaml'
     LABEL_PATH="/data/wsi/TCTGC10k-labels/9_labels"
@@ -13,6 +13,7 @@ elif [ "${DATASET}" = "TCTGC2625" ]; then
     LABEL_PATH='/data/wsi/TCTGC2625-labels/n-labels'
 fi
 DATASET_ROOT="/data/wsi/${DATASET}-features/${FEATURES}"
+DATASET_ROOT="/home1/wsi/gc-all-features/contrastive/resnet50-tune"
 
 # ablation
 LOSS=${1:-'bce'} # ce, bce, softbce, ranking, aploss, focal
@@ -20,10 +21,10 @@ NEG_WEIGHT=1
 NEG_MARGIN=0
 IMBALANCE_SAMPLER=0
 BATCH_SIZE=1 # 64 for coarse-abmil, 24 for fine-abmil, 2 for tma
-INPUT_DIM=512
-SAME_PSIZE=0
+INPUT_DIM=1024
+SAME_PSIZE=1000
 NONILM=2
-MIL_METHOD=tma # abmil transmil transab tma
+MIL_METHOD=abmil # abmil transmil transab tma
 TRAIN_VAL=1
 FINE_CONCAT=0
 KEEP_PSIZE_COLLATE=0

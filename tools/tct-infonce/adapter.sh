@@ -2,17 +2,17 @@
 set -x
 
 cd PatchEncoder
-BACKBONE=biomedclip # biomedclip plip clip resnet50 vitB
+BACKBONE=resnet50 # biomedclip plip clip resnet50 vitB
 DATASET=gc
 K=50
 
-DATA_DIR=/home1/wsi/gc-filter/filter-images/biomed1-meanmil
+DATA_DIR=/home1/wsi/gc-filter/filter-images/random
 TRAIN_LABEL=../datatools/TCTGC2625/labels/train_label.csv
 PROJECT_NAME=simclr-infonce
 OUTPUT_PATH=output-model
-NOT_FROZEN=0
-BS=256 # 256
-TITLE_NAME=${BACKBONE}_simclr_infonce_filter${DATASET}_${K}_${NOT_FROZEN}Nfrozen_224_4*${BS}
+NOT_FROZEN=1
+BS=32 # 256
+TITLE_NAME=${BACKBONE}_simclr_infonce_random${DATASET}_${K}_${NOT_FROZEN}Nfrozen_224_4*${BS}
 python -m torch.distributed.launch --master_port=10000 --nproc_per_node=4 simclr.py --ddp \
                                                             --dataset=${DATASET} \
                                                             --backbone=${BACKBONE} \
@@ -26,4 +26,4 @@ python -m torch.distributed.launch --master_port=10000 --nproc_per_node=4 simclr
                                                             --batch_size=${BS} \
                                                             --epochs=200 \
                                                             --not_frozen=${NOT_FROZEN} \
-                                                            # --wandb
+                                                            --wandb
