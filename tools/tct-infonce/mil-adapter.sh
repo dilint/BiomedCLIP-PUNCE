@@ -3,7 +3,7 @@ set -x
 
 cd MHIM-MIL 
 
-FEATURE_NAME=resnet50-tuneR # biomed1 clip1 plip1 biomed-apapter biomed-ori
+FEATURE_NAME=resnet50-tuneAll # biomed1 clip1 plip1 biomed-apapter biomed-ori
 NUM_DIM=1024 # 512 512 512
 DATASET=TCTGC2625
 

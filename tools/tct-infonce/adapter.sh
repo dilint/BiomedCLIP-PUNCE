@@ -6,13 +6,14 @@ BACKBONE=resnet50 # biomedclip plip clip resnet50 vitB
 DATASET=gc
 K=50
 
-DATA_DIR=/home1/wsi/gc-filter/filter-images/random
+DATA_DIR=/home1/wsi/gc-224
 TRAIN_LABEL=../datatools/TCTGC2625/labels/train_label.csv
 PROJECT_NAME=simclr-infonce
 OUTPUT_PATH=output-model
 NOT_FROZEN=1
 BS=32 # 256
 TITLE_NAME=${BACKBONE}_simclr_infonce_random${DATASET}_${K}_${NOT_FROZEN}Nfrozen_224_4*${BS}
+TITLE_NAME=${BACKBONE}_simclr_infonce_${DATASET}_all_${NOT_FROZEN}Nfrozen_224_4*${BS}
 python -m torch.distributed.launch --master_port=10000 --nproc_per_node=4 simclr.py --ddp \
                                                             --dataset=${DATASET} \
                                                             --backbone=${BACKBONE} \
@@ -24,6 +25,6 @@ python -m torch.distributed.launch --master_port=10000 --nproc_per_node=4 simclr
                                                             --workers=0 \
                                                             --seed=2024 \
                                                             --batch_size=${BS} \
-                                                            --epochs=200 \
+                                                            --epochs=100 \
                                                             --not_frozen=${NOT_FROZEN} \
                                                             --wandb
