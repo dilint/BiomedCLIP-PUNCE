@@ -9,7 +9,7 @@ import copy
 import time
 from torch.utils.data import DataLoader, Dataset
 from models.model_adapter import LinearAdapter
-from models.model_backbone import ResnetBackbone, BiomedclipBackbone, ClipBackbone, PlipBackbone, Dinov2Backbone, GigapathBackbone
+from models.model_backbone import ResnetBackbone, BiomedclipBackbone, ClipBackbone, PlipBackbone, Dinov2Backbone, GigapathBackbone, MaeBackbone, Virchow2Backbone, Uni2Backbone
 import argparse
 from utils.file_utils import save_hdf5
 from PIL import Image
@@ -181,7 +181,7 @@ def main():
     parser.add_argument('--fine_grained_size', type=int, nargs='+', default=(256, 256))
     parser.add_argument('--fine_grained_pre_size', type=int, nargs='+', default=(1280, 1280))
     # model options
-    parser.add_argument('--base_model', default='gigapath', type=str, choices=['biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2', 'gigapath'])
+    parser.add_argument('--base_model', default='mae', type=str, choices=['biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2', 'gigapath', 'mae','virchow2','uni2','conch'])
     parser.add_argument('--with_adapter', action='store_true')
     parser.add_argument('--backbone_weight_path', type=str, default=None)
     parser.add_argument('--ckp_path', type=str, default=None)
@@ -264,6 +264,15 @@ def main():
     elif args.base_model == 'gigapath':
         backbone = GigapathBackbone()
         input_dim = 1536
+    elif args.base_model == 'virchow2':
+        backbone = Virchow2Backbone()
+        input_dim = 2560
+    elif args.base_model == 'uni2':
+        backbone = Uni2Backbone()
+        input_dim = 1536
+    elif args.base_model == 'mae':
+        backbone = MaeBackbone()
+        input_dim = 768
     preprocess_val = backbone.preprocess_val
     
     # # 准备一批数据

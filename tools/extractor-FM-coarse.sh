@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-export CUDA_VISIBLE_DEVICES=1,3
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 cd 'PatchEncoder'
 
-FEAT_DIR='plip-coarse' # gigapath1
-BASE_MODEL='plip' # 'biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2', 'gigapath', 'mae'
+FEAT_DIR='uni2-coarse' # gigapath1
+BASE_MODEL='uni2' # 'biomedclip', 'resnet50', 'resnet34', 'resnet18', 'plip', 'clip', 'dinov2', 'gigapath', 'mae','virchow2','uni2','conch'
 DATASET='gc' # 'ngc', 'ubc', 'gc', 'fnac', 'gc2625'
 
-GPU_NUMBERS=2
+GPU_NUMBERS=4
 # WSI_ROOT='/data/wsi/TCTGC50k/TCTGC50k-volume2' 
-WSI_ROOT='/data/wsi/TCTGC50k/TCTGC50k-volume1' 
-OUTPUT_PATH='/data/wsi/TCTGC10k-features'
+WSI_ROOT='/data/wsi/TCTGC50k/TCTGC50k-volume4' 
+OUTPUT_PATH='/data/wsi/TCTGC50k-features'
 python -m torch.distributed.launch --nproc_per_node=$GPU_NUMBERS \
-            --master_port=12000 extract_features_FM.py \
+            --master_port=11000 extract_features_FM.py \
             --base_model=${BASE_MODEL} \
             --dataset=${DATASET} \
             --output_path=$OUTPUT_PATH \

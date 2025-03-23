@@ -182,6 +182,50 @@ class MaeBackbone(nn.Module):
         return features
 
 
+class Virchow2Backbone(nn.Module):
+    def __init__(self):
+        super(Virchow2Backbone, self).__init__()
+        model = timm.create_model("hf-hub:paige-ai/Virchow2", pretrained=True, mlp_layer=SwiGLUPacked, act_layer=torch.nn.SiLU)
+        self.model = model
+        self.preprocess_val = create_transform(**resolve_data_config(model.pretrained_cfg, model=model))
+    def forward(self, x):
+        model = self.model
+        output = model(x)
+        class_token = output[:, 0]    # size: 1 x 1280
+        patch_tokens = output[:, 5:]  # size: 1 x 256 x 1280, tokens 1-4 are register tokens so we ignore those
+
+        # concatenate class token and average pool of patch tokens
+        embedding = torch.cat([class_token, patch_tokens.mean(1)], dim=-1)  # size: 1 x 2560
+        return embedding
+
+class Uni2Backbone(nn.Module):
+    def __init__(self):
+        super(Uni2Backbone, self).__init__()
+                
+        timm_kwargs = {
+                    'img_size': 224, 
+                    'patch_size': 14, 
+                    'depth': 24,
+                    'num_heads': 24,
+                    'init_values': 1e-5, 
+                    'embed_dim': 1536,
+                    'mlp_ratio': 2.66667*2,
+                    'num_classes': 0, 
+                    'no_embed_class': True,
+                    'mlp_layer': timm.layers.SwiGLUPacked, 
+                    'act_layer': torch.nn.SiLU, 
+                    'reg_tokens': 8, 
+                    'dynamic_img_size': True
+                }
+        model = timm.create_model("hf-hub:MahmoodLab/UNI2-h", pretrained=True, **timm_kwargs)
+        transform = create_transform(**resolve_data_config(model.pretrained_cfg, model=model))
+        self.model = model
+        self.preprocess_val = transform
+
+    def forward(self, x):
+        model = self.model
+        return model(x)
+    
 class CustomeVitBase(nn.Module):
     def __init__(self):
         super(CustomeVitBase, self).__init__()
