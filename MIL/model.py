@@ -17,7 +17,7 @@ def initialize_weights(module):
 class MIL(nn.Module):
     def __init__(self, input_dim=1024, mlp_dim=512,n_classes=2,mil='abmil',dropout=0.25,head=8,act='gelu'):
         super(MIL, self).__init__()
-        self.patch_to_emb = [nn.Linear(input_dim, 512)]
+        self.patch_to_emb = [nn.Linear(input_dim, mlp_dim)]
         
         if act.lower() == 'relu':
             self.patch_to_emb += [nn.ReLU()]

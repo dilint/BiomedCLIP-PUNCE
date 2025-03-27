@@ -8,7 +8,7 @@ DATASET='gc' # 'ngc', 'ubc', 'gc', 'fnac', 'gc2625'
 
 GPU_NUMBERS=4
 # WSI_ROOT='/data/wsi/TCTGC50k/TCTGC50k-volume2' 
-WSI_ROOT='/data/wsi/TCTGC50k/TCTGC50k-volume4' 
+WSI_ROOT='/data/wsi/TCTGC50k/TCTGC50k-volume5' 
 OUTPUT_PATH='/data/wsi/TCTGC50k-features'
 python -m torch.distributed.launch --nproc_per_node=$GPU_NUMBERS \
             --master_port=11000 extract_features_FM.py \

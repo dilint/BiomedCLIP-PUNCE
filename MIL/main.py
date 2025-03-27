@@ -225,9 +225,9 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
         train_time_meter.update(end-start)
         
         # train_set acc
-        if epoch % 5 == 0:
-            print('Info: Evaluation for train set')
-            val_loop(args,model,train_loader,device,criterion, early_stopping,epoch,test_mode=True,data_split='train')
+        # if epoch % 5 == 0:
+        #     print('Info: Evaluation for train set')
+        #     val_loop(args,model,train_loader,device,criterion, early_stopping,epoch,test_mode=True,data_split='train')
         
         print('Info: Evaluation for val set')
         stop, aucs, acc, recs, precs, f1s, test_loss = val_loop(args,model,val_loader,device,criterion,\
@@ -512,34 +512,7 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
         return stop, aucs, acc, recs, precs, f1s, loss_cls_meter
 
 if __name__ == '__main__':
-    
-    # args = argparse.ArgumentParser()
-    # args.in_dims = 256
-    # args.num_classes = [1,5,3]
-    # args.depth = 4
-    # args.num_heads = 4
-    # args.proj_drop = 0.02
-    # args.attn_drop = 0.02
-    # args.drop_path = 0.01
 
-    # model = Model_V1(
-    #     in_dims=args.in_dims,
-    #     num_classes=args.num_classes,
-    #     depth=args.depth,
-    #     num_heads=args.num_heads,
-    #     proj_drop=args.proj_drop,
-    #     attn_drop=args.attn_drop,
-    #     drop_path=args.drop_path,
-    # )
-
-    # size = (5, 10, 100, 256) # [B, N, M, C]
-    # mask = torch.ones(size[0], size[1], size[2])
-    # a = torch.randn(size)
-    # output = model(a, mask)
-    # print(output.shape)
-    
-    # assert 1==0
-    
     parser = argparse.ArgumentParser(description='MIL Training Script')
 
     # Dataset 
@@ -605,7 +578,6 @@ if __name__ == '__main__':
     parser.add_argument('--eval_only', action='store_true', help='Only evaluate')
     parser.add_argument('--keep_psize_collate', type=float, default=0, help='use collate to keep patch size')
     parser.add_argument('--threshold', default=0.3, type=float, help='threshold for evaluation')
-    
     
     args = parser.parse_args()
     

@@ -3,9 +3,9 @@
 set -x
 
 # 前两个选项来选择 数据集和提取特征方式
-DATASET='TCTGC2625' # TCTGC10k, TCTGC2625
+DATASET='TCTGC50k' # TCTGC50k, TCTGC10k, TCTGC2625
 FEATURES='resnet50-tune' # plip-fine, plip-coarse, rtdetr
-if [ "${DATASET}" = "TCTGC10k" ]; then
+if [ "${DATASET}" = "TCTGC50k" ]; then
     TASK_CONFIG='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/configs/mh_9.yaml'
     LABEL_PATH="/data/wsi/TCTGC10k-labels/9_labels"
 elif [ "${DATASET}" = "TCTGC2625" ]; then

@@ -133,127 +133,13 @@ def six_scores(bag_labels, bag_predictions, thres):
     # accuracy = 1- np.count_nonzero(np.array(bag_labels).astype(int)- bag_predictions.astype(int)) / len(bag_labels)
     return accuracy, auc_value, precision, recall, specificity, fscore
 
-def multi_class_scores_nonilm(bag_labels, bag_logits, class_labels):
-    # 去掉NILM类别 ，通过每个类别分别计算tpr和fpr，获得optimal_threshold，如果每个类别都为0，则被分为NILM
-    bag_labels = np.array(bag_labels)
-    bag_logits = np.array(bag_logits)
-    n_classes = max(bag_labels) + 1
-    bag_labels_one_hot = np.eye(n_classes)[bag_labels]
-    
-    roc_auc = dict()
-    bag_pred_onehot = np.zeros_like(bag_logits)
-    thresholds = []
-    for i in range(1, n_classes):
-        roc_auc[i] = roc_auc_score(bag_labels_one_hot[:, i], bag_logits[:, i])
-        fpr, tpr, threshold = roc_curve(bag_labels_one_hot[:, i], bag_logits[:, i], pos_label=1)
-        fpr_optimal, tpr_optimal, threshold_optimal = optimal_thresh(fpr, tpr, threshold)
-        thresholds.append(threshold_optimal)
-        bag_pred_onehot[:, i] = bag_logits[:, i] >= threshold_optimal
-    print("Info: thresholds for 4 positive classes:")
-    print(thresholds)
-    for j in range(bag_pred_onehot.shape[0]):
-        if np.sum(bag_pred_onehot[j]) == 0:
-            bag_pred_onehot[j, 0] = 1
-        elif np.sum(bag_pred_onehot[j]) > 1:
-            # 多个类别都大于阈值，则保留最大概率的类别
-            bag_pred_onehot[j] = 0
-            bag_pred_onehot[j, np.argmax(bag_logits[j, 1:])+1] = 1
-    bag_pred = np.argmax(bag_pred_onehot, axis=-1)
-    
-    roc_auc = list(roc_auc.values())
-    roc_auc_macro = np.mean(roc_auc)
-    
-    accuracy = accuracy_score(bag_labels, bag_pred)
-    recall = recall_score(bag_labels, bag_pred, average='macro', labels=list(range(1,n_classes)))
-    precision = precision_score(bag_labels, bag_pred, average='macro', labels=list(range(1,n_classes)))
-    fscore = f1_score(bag_labels, bag_pred, average='macro', labels=list(range(1,n_classes)))
-    two_class_scores(bag_labels, bag_pred)
-    confusion_matrix(bag_labels, bag_pred_onehot, class_labels)
-    return roc_auc_macro, accuracy, recall, precision, fscore
-
-def multi_class_scores_nonilmv2(bag_labels, bag_logits, class_labels, wsi_names, eval_only):
-    # 去掉NILM类别 ，通过每个类别分别计算tpr和fpr，获得optimal_threshold，如果每个类别都为0，则被分为NILM
-    eval_method=1
-    bag_labels = np.array(bag_labels)
-    bag_logits = np.array(bag_logits)
-    n_classes = max(bag_labels) + 1
-    bag_labels_one_hot = np.eye(n_classes)[bag_labels]
-    
-    roc_auc = dict()
-    bag_pred_onehot = np.zeros_like(bag_logits)
-    thresholds, num_pos = [], []
-    threshold_set = [0, 0.3, 0.3, 0.3, 0.3]
-    for i in range(1, n_classes):
-        roc_auc[i] = roc_auc_score(bag_labels_one_hot[:, i], bag_logits[:, i])
-        fpr, tpr, threshold = roc_curve(bag_labels_one_hot[:, i], bag_logits[:, i], pos_label=1)
-        fpr_optimal, tpr_optimal, threshold_optimal = optimal_thresh(fpr, tpr, threshold)
-        threshold_optimal = threshold_set[i]
-        bag_pred_onehot[:, i] = bag_logits[:, i] >= threshold_optimal
-        thresholds.append(threshold_optimal)
-        num_pos.append(np.sum(bag_pred_onehot[:, i]))
-    print("Info: thresholds for 4 positive classes:")
-    print(thresholds)
-    print("Info: positive num for 4 positive classes:")
-    print(num_pos)
-    for j in range(bag_pred_onehot.shape[0]):
-        if np.sum(bag_pred_onehot[j]) == 0:
-            bag_pred_onehot[j, 0] = 1
-        elif np.sum(bag_pred_onehot[j]) > 1:
-            # 多个类别都大于阈值，则保留最大风险的类别
-            if eval_method == 1:
-                for i, score in enumerate(bag_pred_onehot[j]):
-                    if np.sum(bag_pred_onehot[j]) == 0:
-                        bag_pred_onehot[j, 0] = 1
-                    elif np.sum(bag_pred_onehot[j]) > 1:
-                        # 多个类别都大于阈值，则保留最大概率的类别
-                        bag_pred_onehot[j] = 0
-                        bag_pred_onehot[j, np.argmax(bag_logits[j, 1:])+1] = 1
-            # 多个类别都大于阈值，则保留最大概率的类别
-            elif eval_method == 2:
-                for i, score in enumerate(bag_pred_onehot[j]):
-                    if score >= 1 and i > 0:
-                        class_index = i 
-                bag_pred_onehot[j] = 0
-                bag_pred_onehot[j, class_index] = 1
-    bag_pred = np.argmax(bag_pred_onehot, axis=-1)
-    
-    roc_auc = list(roc_auc.values())
-    roc_auc_macro = np.mean(roc_auc)
-    
-    accuracy = accuracy_score(bag_labels, bag_pred)
-    recall = recall_score(bag_labels, bag_pred, average='macro', labels=list(range(1,n_classes)))
-    precision = precision_score(bag_labels, bag_pred, average='macro', labels=list(range(1,n_classes)))
-    fscore = f1_score(bag_labels, bag_pred, average='macro', labels=list(range(1,n_classes)))
-    # 方便查看错误样本
-    if eval_only:
-        err_pos_count=0
-        for i, wsi_name in enumerate(wsi_names):
-            # if bag_pred[i] == bag_labels[i]:
-            #     print(f"[Info]: correct class, wsi_name: {wsi_name}, labe;: {bag_labels[i]}")
-            #     continue
-            # elif bag_labels[i] == 0:
-            #     print(f"[Info]: error class for negative sample, wsi_name: {wsi_name}, label: {bag_labels[i]}, perd: {bag_pred[i]}")
-            # else:
-            #     err_pos_count += 1
-            #     print(f"[Warning]{err_pos_count}: wsi_name: {wsi_name}, label: {bag_labels[i]}, perd: {bag_pred[i]}")
-            if bag_labels[i] == 4:
-                print(f"[Info] Logits for {wsi_name}: {[round(bag_logit, 4) for bag_logit in bag_logits[i]]}")
-        print(f'Accuracy: {round(accuracy,4)}, Recall: {round(recall,4)}, Precision: {round(precision,4)}, Fscore: {round(fscore,4)}, ROC_AUC: {round(roc_auc_macro,4)}')
-    
-    # 打印混淆矩阵
-    two_class_scores(bag_labels, bag_pred)
-    confusion_matrix(bag_labels, bag_pred_onehot, class_labels)
-    
-    return roc_auc_macro, accuracy, recall, precision, fscore
-
-def multi_class_scores_mtl(bag_labels, bag_logits, class_labels, wsi_names, threshold, eval_only):
+def multi_class_scores_mtl(gt_logtis, pred_logits, class_labels, wsi_names, threshold):
     """
     参数：
-        bag_labels (list): N, 真实标签
-        bag_logtis (tensor): [N, num_class], 每个样本的类别概率
-        class_labels (list): [['NILM'], ['ASC-US', 'LSIL', 'ASC-H', 'HSIL', 'AGC'], ['BV', 'M', 'T']],  类别标签, 
+        gt_logtis (list): [N, num_class], 真实标签
+        pred_logits (tensor): [N, num_class], 每个样本的类别概率
+        class_labels (list): ['NILM', 'ASC-US', 'LSIL', 'ASC-H', 'HSIL', 'AGC', 'BV', 'M', 'T'],  类别标签, 
         wsi_names (list): N, WSI名称,方便打印错误信息
-        eval_only (bool): 是否只进行评估
     返回：
         roc_auc_macro (ndarray): 多类别ROC_AUC
         accuracy (float): Micro 准确率
@@ -262,13 +148,30 @@ def multi_class_scores_mtl(bag_labels, bag_logits, class_labels, wsi_names, thre
         fscore (ndarray): Macro F1分数
     TODO 目前对于多类别任务，只考虑了1,5,3的多分类划分方式以及5分类的单任务模式
     """
-    # 将所有类别合并处理
-    assert len(class_labels) == 5 or len(class_labels) == 9 
+    # 对于多类别样本 拆分成多个样本，预测概率将正确的其他类别概率设为0
+    
+    assert len(class_labels) == 5 or len(class_labels) == 10 or len(class_labels) == 9
+    bag_labels = []
+    new_pred_logits = []
+    
+    for i, gt_logit in enumerate(gt_logtis):
+        gt_labels = torch.where(gt_logit == 1)[0]
+        if len(gt_labels) > 1:
+            for gt_label in gt_labels:
+                pred_logit = copy.deepcopy(pred_logits[i])
+                pred_logit[gt_logit == 1] = 0
+                bag_labels.append(gt_label)
+                pred_logit[gt_label] = pred_logits[i][gt_label]
+                new_pred_logits.append(pred_logit)
+        else:
+            bag_labels.append(gt_labels[0])
+            new_pred_logits.append(pred_logits[i])
+            
     bag_labels = np.array(bag_labels)
-    bag_logits = np.array(bag_logits)
- 
+    bag_logits = np.array(new_pred_logits)
+    
     # 对于宫颈癌症风险和微生物感染任务 分开计算指标
-    if len(class_labels) == 9:
+    if len(class_labels) in [9, 10]:
         bag_labels_cancer, bag_labels_microbial = bag_labels[bag_labels < 6], bag_labels[bag_labels >= 6]
         bag_logits_cancer, bag_logtis_microbial = bag_logits[bag_labels < 6, :6], bag_logits[bag_labels >= 6, 6:]
         class_labels_cancer, class_labels_microbial = class_labels[:6], class_labels[6:]
@@ -302,11 +205,12 @@ def multi_class_scores_mtl(bag_labels, bag_logits, class_labels, wsi_names, thre
     precisions = precision_score(bag_labels_cancer, bag_pred_cancer, average=None, labels=list(range(1,n_cancer_class)))
     fscores = f1_score(bag_labels_cancer, bag_pred_cancer, average=None, labels=list(range(1,n_cancer_class)))
     print('[INFO] confusion matrix for cancer labels:')
-    confusion_matrix(bag_labels_cancer, bag_pred_cancer, class_labels_cancer)
+    cancer_matrix = confusion_matrix(bag_labels_cancer, bag_pred_cancer, class_labels_cancer)
     print('fscores len' + str(len(fscores)))
     
     # 评估微生物感染
-    if len(class_labels) == 9:
+    microbial_matrix = None
+    if len(class_labels) in [9, 10]:
         n_microbial_class = len(class_labels_microbial)
         n_microbial_sample = bag_labels_microbial.shape[0]
         bag_labels_microbial = bag_labels_microbial - 6
@@ -330,45 +234,17 @@ def multi_class_scores_mtl(bag_labels, bag_logits, class_labels, wsi_names, thre
         # print(recalls2, recalls2.shape, type(recalls2))
         recalls, precisions, fscores = np.concatenate((recalls, recalls2)), np.concatenate((precisions, precisions2)), np.concatenate((fscores, fscores2))
         print('[INFO] confusion matrix for microbial labels:')
-        confusion_matrix(bag_labels_microbial, bag_pred_microbial, class_labels_microbial)
+        microbial_matrix = confusion_matrix(bag_labels_microbial, bag_pred_microbial, class_labels_microbial)
         accuracy_2 = accuracy_score(bag_labels_microbial, bag_pred_microbial)
-        accuracy = (accuracy * n_cancer_sample + accuracy_2 * n_microbial_sample) / (n_cancer_sample + n_microbial_sample)
+        accuracy_all = (accuracy * n_cancer_sample + accuracy_2 * n_microbial_sample) / (n_cancer_sample + n_microbial_sample)
+        accuracys = [accuracy, accuracy_2, accuracy_all]
     print('Recalls: ' + str(recalls))
-    return roc_auc, accuracy, recalls, precisions, fscores
+    print('roc', 'acc', 'recall', 'prec', 'fs')
+    print(roc_auc, accuracys, recalls, precisions, fscores)
+    return roc_auc, accuracys, recalls, precisions, fscores, cancer_matrix, microbial_matrix
     # return roc_auc_macro, accuracy, recall, precision, fscore
-
-def multi_class_scores(bag_labels, bag_logits, class_labels):
-    bag_labels = np.array(bag_labels)
-    n_classes = max(bag_labels) + 1
-    bag_labels_one_hot = np.eye(n_classes)[bag_labels]
-
-    bag_logits = np.array(bag_logits)
-    bag_pred = np.argmax(bag_logits, axis=-1)
-    accuracy = accuracy_score(bag_labels, bag_pred)
-    recall = recall_score(bag_labels, bag_pred, average=None)
-    print(recall)
-    recall = recall_score(bag_labels, bag_pred, average='macro', labels=list(range(1,n_classes)))
-    precision = precision_score(bag_labels, bag_pred, average='macro', labels=list(range(1,n_classes)))
-    fscore = f1_score(bag_labels, bag_pred, average='macro', labels=list(range(1,n_classes)))
-    roc_auc = dict()
-    for i in range(1, n_classes):
-        roc_auc[i] = roc_auc_score(bag_labels_one_hot[:, i], bag_logits[:, i])
-    roc_auc = list(roc_auc.values())
-    roc_auc_macro = np.mean(roc_auc)
-    two_class_scores(bag_labels, bag_pred)
-    confusion_matrix(bag_labels, np.eye(n_classes)[bag_pred], class_labels)
-    return roc_auc_macro, accuracy, recall, precision, fscore
-
-def two_class_scores(bag_labels, bag_pred):
-    bag_labels = [1 if i != 0 else 0 for i in bag_labels]
-    bag_pred = [1 if i != 0 else 0 for i in bag_pred]
-    bag_labels, bag_pred = np.array(bag_labels), np.array(bag_pred)
-
-    accuracy = accuracy_score(bag_labels, bag_pred)
-    print(f"Two class Acc:{accuracy}")
-    confusion_matrix(bag_labels, bag_pred, ['NILM', 'POS'])
     
-        
+    
 def confusion_matrix(bag_labels, bag_pred, class_labels):
     """
     混淆矩阵生成：
@@ -407,6 +283,107 @@ def confusion_matrix(bag_labels, bag_pred, class_labels):
         table.add_row([label] + list(map(str, cm_manual[i])) + [row_totals[i]])
     table.add_row(["总计"] + list(map(str, col_totals)) + [total])
     print(table)
+    return table
+
+def prettytable_to_dataframe(pt):
+    """
+    将 PrettyTable 转换为 pandas DataFrame。
+    
+    参数：
+        pt (PrettyTable): PrettyTable 对象。
+    返回：
+        pd.DataFrame: 转换后的 DataFrame。
+    """
+    # 获取表头和行数据
+    headers = pt.field_names
+    rows = pt._rows
+
+    # 转换为 DataFrame
+    df = pd.DataFrame(rows, columns=headers)
+    return df
+
+
+import pandas as pd
+import numpy as np
+
+def save_metrics_to_excel(roc_auc, accuracies, recalls, precisions, fscores, confusion_matrix_cancer_pt, confusion_matrix_microbial_pt, class_labels, output_excel_path):
+    """
+    将每个类别的AUC、召回率、精确率、F1分数，以及宫颈癌类别和微生物感染类别的平均指标存储到Excel表格中。
+    所有指标以百分比形式显示，并保留两位小数。同时保存混淆矩阵（PrettyTable 格式）。
+    
+    参数：
+        roc_auc (list): 每个类别的AUC值。
+        accuracies (list): 三个准确率值，分别是宫颈癌类别、微生物感染类别和所有类别的准确率。
+        recalls (list): 每个类别的召回率。
+        precisions (list): 每个类别的精确率。
+        fscores (list): 每个类别的F1分数。
+        confusion_matrix_cancer_pt (PrettyTable): 宫颈癌类别的混淆矩阵（PrettyTable 格式）。
+        confusion_matrix_microbial_pt (PrettyTable): 微生物感染类别的混淆矩阵（PrettyTable 格式）。
+        class_labels (list): 类别标签。
+        output_excel_path (str): 输出Excel文件的路径。
+    """
+    # 将指标转换为百分比形式，并保留两位小数
+    roc_auc = [round(auc * 100, 2) for auc in roc_auc]
+    recalls = [round(recall * 100, 2) for recall in recalls]
+    precisions = [round(precision * 100, 2) for precision in precisions]
+    fscores = [round(fscore * 100, 2) for fscore in fscores]
+    accuracies = [round(acc * 100, 2) for acc in accuracies]
+
+    # 创建一个DataFrame存储每个类别的指标
+    results = {
+        "Class": class_labels[1:],
+        "AUC (%)": roc_auc,
+        "Recall (%)": recalls,
+        "Precision (%)": precisions,
+        "F1 Score (%)": fscores
+    }
+    df = pd.DataFrame(results)
+
+    # 计算宫颈癌类别和微生物感染类别的平均指标
+    cancer_avg_auc = round(np.mean(roc_auc[:5]), 2)  # 前五个类别为宫颈癌
+    cancer_avg_recall = round(np.mean(recalls[:5]), 2)
+    cancer_avg_precision = round(np.mean(precisions[:5]), 2)
+    cancer_avg_fscore = round(np.mean(fscores[:5]), 2)
+    cancer_accuracy = accuracies[0]  # 宫颈癌类别的准确率
+
+    microbial_avg_auc = round(np.mean(roc_auc[5:]), 2)  # 后面几个类别为微生物感染
+    microbial_avg_recall = round(np.mean(recalls[5:]), 2)
+    microbial_avg_precision = round(np.mean(precisions[5:]), 2)
+    microbial_avg_fscore = round(np.mean(fscores[5:]), 2)
+    microbial_accuracy = accuracies[1]  # 微生物感染类别的准确率
+
+    # 计算所有类别的平均指标
+    all_avg_auc = round(np.mean(roc_auc), 2)
+    all_avg_recall = round(np.mean(recalls), 2)
+    all_avg_precision = round(np.mean(precisions), 2)
+    all_avg_fscore = round(np.mean(fscores), 2)
+    all_accuracy = accuracies[2]  # 所有类别的准确率
+
+    # 将平均指标添加到DataFrame中
+    df_avg = pd.DataFrame({
+        "Class": ["Cervical Cancer Average", "Microbial Infection Average", "All Classes Average"],
+        "AUC (%)": [cancer_avg_auc, microbial_avg_auc, all_avg_auc],
+        "Recall (%)": [cancer_avg_recall, microbial_avg_recall, all_avg_recall],
+        "Precision (%)": [cancer_avg_precision, microbial_avg_precision, all_avg_precision],
+        "F1 Score (%)": [cancer_avg_fscore, microbial_avg_fscore, all_avg_fscore],
+        "Accuracy (%)": [cancer_accuracy, microbial_accuracy, all_accuracy]
+    })
+
+    # 合并结果
+    df_final = pd.concat([df, df_avg], ignore_index=True)
+
+    # 将 PrettyTable 转换为 DataFrame
+    confusion_matrix_cancer_df = prettytable_to_dataframe(confusion_matrix_cancer_pt)
+    confusion_matrix_microbial_df = prettytable_to_dataframe(confusion_matrix_microbial_pt)
+
+    # 将混淆矩阵保存到Excel的不同Sheet中
+    with pd.ExcelWriter(output_excel_path) as writer:
+        df_final.to_excel(writer, sheet_name="Metrics", index=False)
+        confusion_matrix_cancer_df.to_excel(writer, sheet_name="Confusion Matrix (Cancer)", index=False)
+        confusion_matrix_microbial_df.to_excel(writer, sheet_name="Confusion Matrix (Microbial)", index=False)
+
+    print(f"Metrics and confusion matrices saved to {output_excel_path}")
+        
     
     
 def calc_iou(a, b):
