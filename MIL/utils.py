@@ -472,6 +472,44 @@ def cosine_scheduler(base_value, final_value, epochs, niter_per_ep, warmup_epoch
     assert len(schedule) == epochs * niter_per_ep
     return schedule
 
+import logging
+from datetime import datetime
+
+def print_and_log(message, log_file='output.log', print_it=True, level='info'):
+    """
+    同时打印消息和记录到日志文件
+    
+    参数:
+        message: 要输出的消息内容
+        log_file: 日志文件路径(默认'output.log')
+        print_it: 是否打印到控制台(默认True)
+        level: 日志级别('debug', 'info', 'warning', 'error', 'critical'，默认'info')
+    """
+    # 配置日志记录器
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        filename=log_file,
+        filemode='a'  # 追加模式
+    )
+    
+    # 打印到控制台
+    if print_it:
+        print(message)
+    
+    # 记录到日志文件
+    log_levels = {
+        'debug': logging.debug,
+        'info': logging.info,
+        'warning': logging.warning,
+        'error': logging.error,
+        'critical': logging.critical
+    }
+    
+    log_func = log_levels.get(level.lower(), logging.info)
+    log_func(message)
+
+
 class EarlyStopping:
     """Early stops the training if validation loss doesn't improve after a given patience."""
     def __init__(self, patience=20, stop_epoch=50, verbose=False,save_best_model_stage=0.):

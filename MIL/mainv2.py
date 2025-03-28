@@ -48,7 +48,7 @@ def main(args):
     ckc_metric = [acs, pre, rec, fs, auc, te_auc, te_fs] # acs: [fold, fold] fold: [task1, task2]
 
     if not args.no_log:
-        print('Dataset: ' + args.datasets)
+        print_and_log('Dataset: ' + args.datasets, args.log_file)
     one_fold(args, ckc_metric, train_wsi_names, train_wsi_labels, test_wsi_names, test_wsi_labels)
 
 def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
@@ -132,12 +132,13 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
     
     # 训练epoch
     for epoch in range(args.num_epoch):
+        train_loss, start, end = 0, 0, 0
         train_loss,start,end = train_loop(args,model,train_loader,optimizer,device,amp_autocast,criterion,scheduler,epoch)
         train_time_meter.update(end-start)
         
         if not args.no_log:
-            print('\r Epoch [%d/%d] train loss: %.1E, time: %.3f(%.3f)' % 
-        (epoch+1, args.num_epoch, train_loss, train_time_meter.val, train_time_meter.avg))
+            print_and_log('\r Epoch [%d/%d] train loss: %.1E, time: %.3f(%.3f)' % 
+        (epoch+1, args.num_epoch, train_loss, train_time_meter.val, train_time_meter.avg), args.log_file)
         
         # save checkpoint
         random_state = {
@@ -163,9 +164,9 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
     if not args.no_log:
         best_std = torch.load(os.path.join(args.model_path, 'ckp.pt'))
         info = model.load_state_dict(best_std['model'])
-        print(info)
+        print_and_log(info, args.log_file)
         
-    print('Info: Evaluation for test set')
+    print_and_log('Info: Evaluation for test set', args.log_file)
     aucs, acc, recs, precs, f1s, test_loss = val_loop(args,model,test_loader,device,criterion)
     return 
 
@@ -177,7 +178,7 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
     if not args.no_log:
         n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
         num_total_param = sum(p.numel() for p in model.parameters())
-        print('Number of total parameters: {}, tunable parameters: {}'.format(num_total_param, n_parameters))
+        print_and_log('Number of total parameters: {}, tunable parameters: {}'.format(num_total_param, n_parameters), args.log_file)
     
     last_time = time.time()
     for i, data in enumerate(loader):
@@ -230,7 +231,7 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
                 ('lr',lr),
             ])
             if not args.no_log:
-                print('[{}/{}] logit_loss:{}'.format(i,len(loader)-1,loss_cls_meter.avg))
+                print_and_log('[{}/{}] logit_loss:{}'.format(i,len(loader)-1,loss_cls_meter.avg), args.log_file)
             rowd = OrderedDict([ (_k,_v) for _k, _v in rowd.items()])
             if args.wandb:
                 wandb.log(rowd)
@@ -258,14 +259,14 @@ def val_loop(args,model,loader,device,criterion):
     model.eval()
     loss_cls_meter = AverageMeter()
     
-    bag_logits, bag_labels, wsi_names = [], [], []
+    bag_logits, bag_labels, bag_onehot_labels, wsi_names = [], [], [], []
     with torch.no_grad():
         for i, data in enumerate(loader):
-            bag, label, task_id = data[0].to(device), data[1].to(device), data[2] # b*n*1024
-            label_onehot = one_hot(data[1].view(batch_size,-1),num_classes=args.num_classes).squeeze(1).float()
-            bag_mask = data[4]  # [b,n,25]
-            if bag_mask: bag_mask = bag_mask.to(device)
-            wsi_name = [os.path.basename(wsi_path) for wsi_path in data[3]]
+            bag, label, file_path = data[0].to(device), data[1].to(device), data[2]  # [b,n,1024]
+            bag_mask = data[3].to(device)  # [b,n,25]
+            batch_size=bag.size(0)
+            label_onehot = one_hot(label.view(batch_size,-1),num_classes=args.num_classes).squeeze(1).float()
+            wsi_name = [os.path.basename(wsi_path) for wsi_path in data[2]]
             
             if args.mil_method == 'tma':
                 test_logits = model(bag, bag_mask)
@@ -299,7 +300,8 @@ def val_loop(args,model,loader,device,criterion):
             loss_cls_meter.update(test_loss,1)
     
     class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc', 't', 'm', 'bv']
-    roc_auc, accuracies, recalls, precisions, fscores, cancer_matrix, microbial_matrix = multi_class_scores_mtl(bag_onehot_labels, bag_logits, class_labels, wsi_names, threshold=args.threshold, eval_only=False)
+    bag_onehot_labels = [label.cpu() for label in bag_onehot_labels]
+    roc_auc, accuracies, recalls, precisions, fscores, cancer_matrix, microbial_matrix = multi_class_scores_mtl(bag_onehot_labels, bag_logits, class_labels, wsi_names, threshold=args.threshold)
     output_excel_path = os.path.join(args.model_path, 'metrics.xlsx')
     save_metrics_to_excel(roc_auc, accuracies, recalls, precisions, fscores, cancer_matrix, microbial_matrix, class_labels, output_excel_path)
 
@@ -307,7 +309,7 @@ def val_loop(args,model,loader,device,criterion):
         loss_cls_meter = loss_cls_meter.avg
     else:
         loss_cls_meter = loss_cls_meter.sum
-    return aucs, acc, recs, precs, f1s, loss_cls_meter
+    return roc_auc, accuracies, recalls, precisions, fscores, loss_cls_meter
 
 if __name__ == '__main__':
 
@@ -360,12 +362,12 @@ if __name__ == '__main__':
     # Misc
     parser.add_argument('--model_path', type=str, default='./output-model', help='Output path')
     parser.add_argument('--project', default='gcv15', type=str, help='Project name of exp')
-    parser.add_argument('--title', default='gigapath-abmil', type=str, help='Title of exp')
+    parser.add_argument('--title', default='gigapath-abmil-0328', type=str, help='Title of exp')
     parser.add_argument('--log_iter', default=100, type=int, help='Log Frequency')
     parser.add_argument('--amp', action='store_true', help='Automatic Mixed Precision Training')
     parser.add_argument('--wandb', action='store_true', help='Weight&Bias')
     parser.add_argument('--num_workers', default=16, type=int, help='Number of workers in the dataloader')
-    parser.add_argument('--save_epoch', default=1, type=int, help='epoch number to save model')
+    parser.add_argument('--save_epoch', default=10, type=int, help='epoch number to save model')
     parser.add_argument('--no_log', action='store_true', help='Without log')
     parser.add_argument('--task_config', type=str, default='./configs/oh_5.yaml', help='Task config path')
     parser.add_argument('--eval_only', action='store_true', help='Only evaluate')
@@ -383,13 +385,14 @@ if __name__ == '__main__':
     if not os.path.exists(os.path.join(args.model_path,args.project)):
         os.mkdir(os.path.join(args.model_path,args.project))
     args.model_path = os.path.join(args.model_path,args.project,args.title)
+    args.log_file = os.path.join(args.model_path, 'log.txt')
     if not os.path.exists(args.model_path):
         os.mkdir(args.model_path)
 
     args.fix_loader_random = True
     args.fix_train_random = True
     
-    print(args)
+    print_and_log(args, args.log_file)
     localtime = time.asctime(time.localtime(time.time()) )
-    print(localtime)
+    print_and_log(localtime, args.log_file)
     main(args=args)
