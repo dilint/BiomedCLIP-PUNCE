@@ -102,8 +102,10 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
         criterion = RankingAndSoftBCELoss(neg_weight=args.neg_weight, neg_margin=args.neg_margin)
     elif args.loss == 'aploss':
         criterion = APLoss()
+    elif args.loss == 'asl':
+        criterion = AsymmetricLossOptimized(gamma_neg=args.gamma_neg, gamma_pos=args.gamma_pos, ft_cls=None)
     elif args.loss == 'focal':
-        criterion = FocalLoss(alpha=torch.tensor([0.5, 1, 1, 1, 1]))
+        criterion = BinaryFocalLoss()
 
     # optimizer
     if args.opt == 'adamw':
@@ -200,9 +202,9 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
             else:
                 train_logits = model(bag) # [B, sum_num_classes]
                 
-            if args.loss in ['ce', 'focal']:
+            if args.loss in ['ce']:
                 logit_loss = criterion(train_logits.view(batch_size,-1),label)
-            elif args.loss in ['bce', 'softbce', 'ranking']:
+            elif args.loss in ['bce', 'softbce', 'ranking', 'focal', 'asl']:
                 logit_loss = criterion(train_logits.view(batch_size,-1),label_onehot)
             elif args.loss == 'aploss':
                 logit_loss = criterion.apply(train_logits.view(batch_size,-1),label_onehot)
@@ -285,10 +287,8 @@ def val_loop(args,model,loader,device,criterion):
                 else:
                     bag_logits.extend(torch.softmax(test_logits, dim=-1).cpu().numpy())
             # TODO have not updated            
-            elif args.loss in ['bce', 'softbce', 'ranking', 'aploss', 'focal']:
-                if args.loss in ['focal']:
-                    test_loss = criterion(test_logits.view(batch_size,-1),label)
-                elif args.loss in ['bce', 'softbce', 'ranking']:
+            elif args.loss in ['bce', 'softbce', 'ranking', 'asl', 'focal', 'aploss']:
+                if args.loss in ['bce', 'softbce', 'ranking', 'asl', 'focal']:
                     test_loss = criterion(test_logits.view(batch_size,-1),label_onehot)
                 elif args.loss == 'aploss':
                     test_loss = criterion.apply(test_logits.view(batch_size,-1),label_onehot)
@@ -333,7 +333,9 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', default=16, type=int, help='Number of batch size')
     
     # Loss
-    parser.add_argument('--loss', default='bce', type=str, help='Classification Loss [ce, bce, softbce, ranking, aploss, focal]')
+    parser.add_argument('--loss', default='bce', type=str, help='Classification Loss [ce, bce, asl, softbce, ranking, aploss, focal]')
+    parser.add_argument('--gamma_neg', default=4.0, type=float)
+    parser.add_argument('--gamma_pos', default=1.0, type=float)
     parser.add_argument('--neg_weight', default=0.0, type=float, help='Weight for positive sample in SoftBCE')
     parser.add_argument('--neg_margin', default=0, type=float, help='if use neg_margin in ranking loss')
     parser.add_argument('--opt', default='adam', type=str, help='Optimizer [adam, adamw]')

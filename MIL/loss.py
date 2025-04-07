@@ -168,39 +168,156 @@ def AP_loss(logits,targets):
 
     return grad, 1-metric
 
-class FocalLoss(nn.Module):
-    def __init__(self, alpha=None, gamma=2, reduction='mean'):
-        super(FocalLoss, self).__init__()
-        if alpha is None:
-            self.alpha = torch.ones(1)
-        else:
-            self.alpha = alpha
+
+class BinaryFocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2.0, reduction='mean', eps=1e-8):
+        """
+        alpha: 类别权重（平衡正负样本，建议 0.25 用于正样本少的场景）
+        gamma: 难易样本调节因子（越大，对难样本的关注越高）
+        reduction: 'mean'/'sum'/'none'
+        eps: 数值稳定性
+        """
+        super().__init__()
+        self.alpha = alpha
         self.gamma = gamma
         self.reduction = reduction
+        self.eps = eps
 
     def forward(self, inputs, targets):
-        CE_loss = F.cross_entropy(inputs, targets, reduction='none')
-        pt = torch.exp(-CE_loss)
-        self.alpha = self.alpha.to(inputs.device)
-        F_loss = self.alpha[targets] * (1 - pt) ** self.gamma * CE_loss
+        # 计算概率
+        probs = torch.sigmoid(inputs)
+        bce_loss = F.binary_cross_entropy_with_logits(
+            inputs, targets, reduction='none'
+        )
+        
+        # Focal Weight: (1 - p_t)^gamma
+        p_t = probs * targets + (1 - probs) * (1 - targets)  # p if t=1 else 1-p
+        focal_weight = (1 - p_t).pow(self.gamma)
+        
+        # Alpha 权重
+        alpha_weight = self.alpha * targets + (1 - self.alpha) * (1 - targets)
+        
+        # 组合损失
+        loss = focal_weight * alpha_weight * bce_loss
+        
         if self.reduction == 'mean':
-            return torch.mean(F_loss)
+            return loss.mean()
         elif self.reduction == 'sum':
-            return torch.sum(F_loss)
+            return loss.sum()
         else:
-            return F_loss
+            return loss
 
+
+class DynamicCyclicGamma:
+    def __init__(self, gamma_min=1.0, gamma_max=4.0, gamma_target=1.5, period=10, decay_rate=0.01):
+        self.gamma_min = gamma_min
+        self.gamma_max = gamma_max
+
+        self.gamma_target = gamma_target
+        self.period = period
+        self.decay_rate = decay_rate
+        self.gamma_avg = (gamma_max+gamma_min)/2.
+        self.delta_gamma = (gamma_max-gamma_min)/2.
+
+    def get_gamma_neg(self, now_step):
+        cy_gamma = self.gamma_avg + self.delta_gamma*math.sin(2*math.pi*(now_step/self.period))
+
+        gamma_neg = cy_gamma * math.exp(-self.decay_rate * now_step) + \
+                self.gamma_target * (1-math.exp(-self.decay_rate*now_step))
+        
+        return gamma_neg
+
+class AsymmetricLossOptimized(nn.Module):
+    ''' Notice - optimized version, minimizes memory allocation and gpu uploading,
+    favors inplace operations'''
+
+    def __init__(self, gamma_neg=4, gamma_pos=1, clip=0.05, eps=1e-8, disable_torch_grad_focal_loss=False, ft_cls=None, num_classes=9):
+        super(AsymmetricLossOptimized, self).__init__()
+
+        self.gamma_neg = gamma_neg
+        self.gamma_pos = gamma_pos
+        self.clip = clip
+        self.disable_torch_grad_focal_loss = disable_torch_grad_focal_loss
+        self.eps = eps
+
+        self.flag = True
+
+        self.ft_cls = ft_cls
+        self.num_classes = num_classes
+        # prevent memory allocation and gpu uploading every iteration, and encourages inplace operations
+        self.targets = self.anti_targets = self.xs_pos = self.xs_neg = self.asymmetric_w = self.loss = None
+
+    def forward(self, x, y):
+        """"
+        Parameters
+        ----------
+        x: input logits
+        y: targets (multi-label binarized vector)
+        """
+        
+        self.targets = y
+        self.anti_targets = 1 - y
+
+        # Calculating Probabilities
+        self.xs_pos = torch.sigmoid(x)
+        self.xs_neg = 1.0 - self.xs_pos
+
+        # Asymmetric Clipping
+        if self.clip is not None and self.clip > 0:
+            self.xs_neg.add_(self.clip).clamp_(max=1)
+
+        self.loss = self.targets * torch.log(self.xs_pos.clamp(min=self.eps))
+        self.loss.add_(self.anti_targets * torch.log(self.xs_neg.clamp(min=self.eps)))
+        
+        # Asymmetric Focusing
+        if self.gamma_neg > 0 or self.gamma_pos > 0:
+            if self.disable_torch_grad_focal_loss:
+                torch.set_grad_enabled(False)
+            self.xs_pos = self.xs_pos * self.targets
+            self.xs_neg = self.xs_neg * self.anti_targets
+
+            if self.ft_cls is not None:
+                # 需要按照微调需求手动更改
+                # 根据目前的测试结果看，漏的情况的原因：1）阳性类的得分不够；2）0类的得分高了
+                
+                # 由于1和0经常比较相近，因此我们还可以考虑不对1类动手的方案
+                gamma_neg = [1.0] + [1.0] + [10.] + [10.] + [10.] + [10.] + [1.]*3
+                gamma_pos = [self.gamma_pos] * 9
+                #weights = [0.] + [1.]*5 + [0.]*4
+                weights = [0.] + [1.] + [2.]*4 + [0.]*3
+            else:
+                gamma_neg = self.gamma_neg
+                gamma_pos = self.gamma_pos
+                weights = torch.tensor([1.]*9, device=x.device)
+
+            self.asymmetric_w = torch.pow(1 - self.xs_pos - self.xs_neg,
+                                          gamma_pos * self.targets + gamma_neg * self.anti_targets)
+
+            if self.disable_torch_grad_focal_loss:
+                torch.set_grad_enabled(True)
+            self.loss = self.loss * self.asymmetric_w
+        
+
+        if self.ft_cls is not None and 1==1:
+            assert self.loss.shape[-1] == 10
+            if self.ft_cls == 1:
+                print("移除阳性类的loss")
+                self.loss *= torch.tensor([1.] + [0.]*5 + [0.]*4).to(x.device) # 移除阳性类的loss
+            elif self.ft_cls == 2: # 移除阴性类的loss:
+                print("移除阴性类的loss")
+                self.loss = self.loss*weights
+
+        return -self.loss.sum(dim=1).mean()
 
 if __name__ == '__main__':
-    logits = [[0.05, 0.05, 0.3, 0.4, 0.2],
-              [0.05, 0.05, 0.3, 0.4, 0.2]]
-    targets = [[0, 0, 0, 1, 0],
-               [0, 0, 1, 0, 0]]
-    logits = torch.tensor(logits).cuda()
-    targets = torch.tensor(targets).cuda()
-    focal_loss = Focal_Loss(weight=1)
-    loss = focal_loss(logits, targets)
-    # aploss = APLoss()
-    # loss = APLoss.apply(logits, targets)  
+    num_classes = 10
+    batch_size = 5
+    logits = torch.randn(batch_size, num_classes)
+    y = F.sigmoid(logits)
+    labels = torch.randint(0, num_classes, (batch_size,))
+    labels_onehot = F.one_hot(labels, num_classes)
+    print(y.shape, labels_onehot.shape)
+    # loss = AsymmetricLossOptimized()
+    # loss(logits, labels)
     
-    print(loss)
+    
