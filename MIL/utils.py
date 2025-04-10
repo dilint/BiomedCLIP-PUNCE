@@ -384,7 +384,21 @@ def save_metrics_to_excel(roc_auc, accuracies, recalls, precisions, fscores, con
 
     print(f"Metrics and confusion matrices saved to {output_excel_path}")
         
+def save_logits(bag_onehot_labels, bag_logits, class_labels, wsi_names, output_path):
+    # 创建 DataFrame 保存数据
+    data = {
+        "wsi_name": wsi_names,
+        "bag_label": bag_onehot_labels,
+        "bag_logits": list(bag_logits)  # 将 logits 数组转换为列表
+    }
     
+    df = pd.DataFrame(data)
+    # 确保输出目录存在
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    # 保存为 CSV
+    df.to_csv(output_path, index=False)
+    print(f"Data saved to {output_path}")
+        
     
 def calc_iou(a, b):
 

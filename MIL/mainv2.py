@@ -37,7 +37,7 @@ def main(args):
     # set seed
     seed_torch(args.seed)
             
-    if args.datasets.lower() in ['gc_v15']:
+    if 'gc' in args.datasets.lower() :
         df_train = pd.read_csv(args.train_label_path)
         train_wsi_names = df_train['wsi_name'].values
         train_wsi_labels = df_train['wsi_label'].map(label2id).values
@@ -62,7 +62,7 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
     acs,pre,rec,fs,auc,te_auc,te_fs = ckc_metric
 
     # ***--->load data
-    if args.datasets.lower() == 'gc_v15':
+    if args.datasets.lower() in ['gc_v15', 'gc_10k']:
         train_set = C16Dataset(train_p,train_l,root=args.dataset_root, persistence=args.persistence, \
                                      keep_same_psize=args.same_psize,is_train=True)
         test_set = C16Dataset(test_p,test_l,root=args.dataset_root, persistence=args.persistence, \
@@ -105,7 +105,7 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
     elif args.loss == 'asl':
         criterion = AsymmetricLossOptimized(gamma_neg=args.gamma_neg, gamma_pos=args.gamma_pos, ft_cls=None)
     elif args.loss == 'focal':
-        criterion = BinaryFocalLoss()
+        criterion = BinaryFocalLoss(alpha=args.alpha, gamma=args.gamma)
 
     # optimizer
     if args.opt == 'adamw':
@@ -299,12 +299,15 @@ def val_loop(args,model,loader,device,criterion):
                     bag_logits.extend(torch.sigmoid(test_logits).cpu().numpy())
             loss_cls_meter.update(test_loss,1)
     
-    class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc', 't', 'm', 'bv']
+    class_labels = args.class_labels
     bag_onehot_labels = [label.cpu() for label in bag_onehot_labels]
     roc_auc, accuracies, recalls, precisions, fscores, cancer_matrix, microbial_matrix = multi_class_scores_mtl(bag_onehot_labels, bag_logits, class_labels, wsi_names, threshold=args.threshold)
     output_excel_path = os.path.join(args.model_path, 'metrics.xlsx')
     save_metrics_to_excel(roc_auc, accuracies, recalls, precisions, fscores, cancer_matrix, microbial_matrix, class_labels, output_excel_path)
-
+    if args.save_logits:
+        output_logits_path = os.path.join(args.model_path, 'logits.csv')
+        save_logits(bag_onehot_labels, bag_logits, class_labels, wsi_names, output_logits_path)
+    
     if args.loss in ['ce']:
         loss_cls_meter = loss_cls_meter.avg
     else:
@@ -316,7 +319,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MIL Training Script')
 
     # Dataset 
-    parser.add_argument('--datasets', default='gc_v15', type=str, help='[ngc, gc, gc_v15, gc_fine]')
+    parser.add_argument('--datasets', default='gc_v15', type=str, help='[ngc, gc_2625, gc_v15, gc_10k, gc_fine]')
     parser.add_argument('--dataset_root', default='/data/wsi/TCTGC50k-features/gigapath-coarse', type=str, help='Dataset root path')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
     parser.add_argument('--fix_train_random', action='store_true', help='Fix random seed of Training')
@@ -336,6 +339,8 @@ if __name__ == '__main__':
     parser.add_argument('--loss', default='bce', type=str, help='Classification Loss [ce, bce, asl, softbce, ranking, aploss, focal]')
     parser.add_argument('--gamma_neg', default=4.0, type=float)
     parser.add_argument('--gamma_pos', default=1.0, type=float)
+    parser.add_argument('--alpha', default=0.5, type=float)
+    parser.add_argument('--gamma', default=0.25, type=float)
     parser.add_argument('--neg_weight', default=0.0, type=float, help='Weight for positive sample in SoftBCE')
     parser.add_argument('--neg_margin', default=0, type=float, help='if use neg_margin in ranking loss')
     parser.add_argument('--opt', default='adam', type=str, help='Optimizer [adam, adamw]')
@@ -369,7 +374,8 @@ if __name__ == '__main__':
     parser.add_argument('--amp', action='store_true', help='Automatic Mixed Precision Training')
     parser.add_argument('--wandb', action='store_true', help='Weight&Bias')
     parser.add_argument('--num_workers', default=16, type=int, help='Number of workers in the dataloader')
-    parser.add_argument('--save_epoch', default=10, type=int, help='epoch number to save model')
+    parser.add_argument('--save_epoch', default=25, type=int, help='epoch number to save model')
+    parser.add_argument('--save_logits', default=1, type=int, help='if save logits in eval loop')
     parser.add_argument('--no_log', action='store_true', help='Without log')
     parser.add_argument('--task_config', type=str, default='./configs/oh_5.yaml', help='Task config path')
     parser.add_argument('--eval_only', action='store_true', help='Only evaluate')
@@ -378,9 +384,22 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     
+    # 通过设置数据集来选择任务和分类的类别数量
     if args.datasets == 'gc_v15':
+        args.project = 'gcv15'
         args.train_label_path = '/data/wsi/TCTGC50k-labels/TCTGC50k-v15-train.csv'
         args.test_label_path = '/data/wsi/TCTGC50k-labels/TCTGC50k-v15-test.csv'
+        args.dataset_root = '/data/wsi/TCTGC50k-features/gigapath-coarse'
+        args.num_classes = 9
+        args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc', 't', 'm', 'bv']
+    elif args.datasets == 'gc_10k':
+        args.project = 'gc_10k'
+        args.train_label_path = '/data/wsi/TCTGC10k-labels/9_labels/TCTGC10k-v15-train.csv'
+        args.test_label_path = '/data/wsi/TCTGC10k-labels/9_labels/TCTGC10k-v15-test.csv'
+        args.dataset_root = '/data/wsi/TCTGC10k-features/gigapath-coarse'
+        args.num_classes = 9
+        args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc', 't', 'm', 'bv']
+        # args.class_labels = ['NILM', 'ASC-US', 'LSIL', 'ASC-H', 'HSIL', 'AGC','BV', 'M', 'T']
     else:
         assert f'{args.datasets} is not supported'
     
