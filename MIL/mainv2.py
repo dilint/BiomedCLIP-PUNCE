@@ -19,6 +19,7 @@ from modules.vit_wsi.model_v1 import Model_V1
 from timm.utils import AverageMeter,dispatch_clip_grad
 from timm.models import  model_parameters
 from collections import OrderedDict
+from augments import *
 from utils import *
 
 id2label = {
@@ -92,20 +93,7 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
             dropout=args.dropout).to(device)
 
     # ***--->construct criterion
-    if args.loss == 'bce':
-        criterion = nn.BCEWithLogitsLoss()
-    elif args.loss == 'ce':
-        criterion = nn.CrossEntropyLoss()
-    elif args.loss == 'softbce':
-        criterion = MySoftBCELoss(neg_weight=args.neg_weight)
-    elif args.loss == 'ranking':
-        criterion = RankingAndSoftBCELoss(neg_weight=args.neg_weight, neg_margin=args.neg_margin)
-    elif args.loss == 'aploss':
-        criterion = APLoss()
-    elif args.loss == 'asl':
-        criterion = AsymmetricLossOptimized(gamma_neg=args.gamma_neg, gamma_pos=args.gamma_pos, ft_cls=None)
-    elif args.loss == 'focal':
-        criterion = BinaryFocalLoss(alpha=args.alpha, gamma=args.gamma)
+    cls_criterion = BuildClsLoss(args)
 
     # optimizer
     if args.opt == 'adamw':
@@ -129,13 +117,13 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
     if args.eval_only:
         ckp = torch.load(os.path.join(args.model_path,'ckp.pt'))
         model.load_state_dict(ckp['model'])
-        val_loop(args,model,test_loader,device,criterion)
+        val_loop(args,model,test_loader,device,cls_criterion)
         return
     
     # 训练epoch
     for epoch in range(args.num_epoch):
         train_loss, start, end = 0, 0, 0
-        train_loss,start,end = train_loop(args,model,train_loader,optimizer,device,amp_autocast,criterion,scheduler,epoch)
+        train_loss,start,end = train_loop(args,model,train_loader,optimizer,device,amp_autocast,cls_criterion,scheduler,epoch)
         train_time_meter.update(end-start)
         
         if not args.no_log:
@@ -169,48 +157,47 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
         print_and_log(info, args.log_file)
         
     print_and_log('Info: Evaluation for test set', args.log_file)
-    aucs, acc, recs, precs, f1s, test_loss = val_loop(args,model,test_loader,device,criterion)
+    aucs, acc, recs, precs, f1s, test_loss = val_loop(args,model,test_loader,device,cls_criterion)
     return 
 
-def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,scheduler,epoch):
+def train_loop(args,model,loader,optimizer,device,amp_autocast,cls_criterion,scheduler,epoch):
     start = time.time()
-    loss_cls_meter = AverageMeter()
     train_loss_log = 0.
+    losses = {}
     model.train()
     if not args.no_log:
         n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
         num_total_param = sum(p.numel() for p in model.parameters())
         print_and_log('Number of total parameters: {}, tunable parameters: {}'.format(num_total_param, n_parameters), args.log_file)
-    
     last_time = time.time()
+    
     for i, data in enumerate(loader):
+        train_loss = torch.tensor(0., device=device)
         optimizer.zero_grad()
         
         bag, label, file_path = data[0].to(device), data[1].to(device), data[2]  # [b,n,1024]
-        bag_mask = data[3].to(device)  # [b,n,25]
-        batch_size=bag.size(0)
-        label_onehot = one_hot(label.view(batch_size,-1),num_classes=args.num_classes).squeeze(1).float()
+        if i < 10:
+            print(list(map(lambda x: os.path.basename(x), file_path)))
+            print(bag.shape)
+        # bag_mask = data[3].to(device)  # [b,n,25]
             
         with amp_autocast():
-            if args.patch_shuffle:
-                bag = patch_shuffle(bag,args.shuffle_group)
-            elif args.group_shuffle:
-                bag = group_shuffle(bag,args.shuffle_group)
-
-            if args.mil_method == 'tma':
-                train_logits = model(bag, bag_mask)  # [B, sum_num_classes]
-            else:
-                train_logits = model(bag) # [B, sum_num_classes]
+            # if args.mil_method == 'tma':
+            #     train_logits = model(bag, bag_mask)  # [B, sum_num_classes]
+            train_logits = model(bag) # [B, sum_num_classes]
+            cls_loss = cls_criterion(train_logits, label)
+            losses['cls_loss'] = cls_loss.item()
+            train_loss += args.loss_cls_weight * cls_loss
+            
+            if args.patch_drop:
+                drop_bag = augment_patch_features(bag).unsqueeze(0)
+                train_logits_d = model(drop_bag)  # [B, sum_num_classes]
+                if i < 10:
+                    print(drop_bag.shape)
+                cls_loss_d = cls_criterion(train_logits_d, label)
+                losses['cls_loss_d'] = cls_loss_d.item()
+                train_loss += args.loss_cls_weight * cls_loss_d
                 
-            if args.loss in ['ce']:
-                logit_loss = criterion(train_logits.view(batch_size,-1),label)
-            elif args.loss in ['bce', 'softbce', 'ranking', 'focal', 'asl']:
-                logit_loss = criterion(train_logits.view(batch_size,-1),label_onehot)
-            elif args.loss == 'aploss':
-                logit_loss = criterion.apply(train_logits.view(batch_size,-1),label_onehot)
-            assert not torch.isnan(logit_loss)
-
-        train_loss = logit_loss
         train_loss = train_loss / args.accumulation_steps
         if args.clip_grad > 0.:
             dispatch_clip_grad(
@@ -222,21 +209,15 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
             optimizer.step()
             if args.lr_supi and scheduler is not None:
                 scheduler.step()
-                
-        loss_cls_meter.update(logit_loss,1)
 
         if i % args.log_iter == 0 or i == len(loader)-1:
             lrl = [param_group['lr'] for param_group in optimizer.param_groups]
             lr = sum(lrl) / len(lrl)
-            rowd = OrderedDict([
-                ('train_loss', train_loss),
-                ('lr',lr),
-            ])
             if not args.no_log:
-                print_and_log('[{}/{}] logit_loss:{}'.format(i,len(loader)-1,loss_cls_meter.avg), args.log_file)
-            rowd = OrderedDict([ (_k,_v) for _k, _v in rowd.items()])
-            if args.wandb:
-                wandb.log(rowd)
+                print_and_log('[{}/{}] '.format(i, len(loader)-1)
+                + ', '.join(['{}: {:.4f}'.format(k, v) for k, v in losses.items()])
+                + ', lr: {:.5f}'.format(lr), args.log_file)
+                # print_and_log('[{}/{}] logit_loss:{}'.format(i,len(loader)-1,loss_cls_meter.avg), args.log_file)
 
         train_loss_log = train_loss_log + train_loss.item()
 
@@ -326,17 +307,21 @@ if __name__ == '__main__':
     parser.add_argument('--persistence', action='store_true', help='Load data into memory') 
     parser.add_argument('--num_classes', default=9, type=int, help='Number of classes 9')
     
+    # Augment
+    parser.add_argument('--patch_drop', default=1, type=float, help='if use patch_drop')
+    
     # Dataset aug    
     parser.add_argument('--imbalance_sampler', default=0, type=float, help='if use imbalance_sampler')
-    parser.add_argument('--same_psize', default=1000, type=int, help='Keep the same size of all patches [0]')
+    parser.add_argument('--same_psize', default=0, type=int, help='Keep the same size of all patches [0]')
     parser.add_argument('--fine_concat', default=0, type=int, help='flatten the fine feature')
 
     # Train
     parser.add_argument('--num_epoch', default=50, type=int, help='Number of total training epochs [200]')
-    parser.add_argument('--batch_size', default=16, type=int, help='Number of batch size')
+    parser.add_argument('--batch_size', default=1, type=int, help='Number of batch size')
     
     # Loss
     parser.add_argument('--loss', default='bce', type=str, help='Classification Loss [ce, bce, asl, softbce, ranking, aploss, focal]')
+    parser.add_argument('--loss_cls_weight', default=1., type=float)
     parser.add_argument('--gamma_neg', default=4.0, type=float)
     parser.add_argument('--gamma_pos', default=1.0, type=float)
     parser.add_argument('--alpha', default=0.5, type=float)
@@ -361,10 +346,6 @@ if __name__ == '__main__':
     parser.add_argument('--dropout', default=0.25, type=float, help='Dropout in the projection head')
     parser.add_argument('--da_act', default='relu', type=str, help='Activation func in the DAttention [gelu,relu]')
 
-    # Shuffle
-    parser.add_argument('--patch_shuffle', action='store_true', help='2-D group shuffle')
-    parser.add_argument('--group_shuffle', action='store_true', help='Group shuffle')
-    parser.add_argument('--shuffle_group', default=0, type=int, help='Number of the shuffle group')
 
     # Misc
     parser.add_argument('--model_path', type=str, default='./output-model', help='Output path')

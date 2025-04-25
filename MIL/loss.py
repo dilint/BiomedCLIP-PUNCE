@@ -2,6 +2,7 @@ import torch.nn as nn
 import torch
 from torch.nn import MarginRankingLoss
 import torch.nn.functional as F
+from torch.nn.functional import one_hot
 import numpy as np
 from utils import calc_iou
 
@@ -309,6 +310,40 @@ class AsymmetricLossOptimized(nn.Module):
 
         return -self.loss.sum(dim=1).mean()
 
+class BuildClsLoss(nn.Module):
+    def __init__(self, args):
+        super(BuildClsLoss, self).__init__()
+        if args.loss == 'bce':
+            criterion = nn.BCEWithLogitsLoss()
+        elif args.loss == 'ce':
+            criterion = nn.CrossEntropyLoss()
+        elif args.loss == 'softbce':
+            criterion = MySoftBCELoss(neg_weight=args.neg_weight)
+        elif args.loss == 'ranking':
+            criterion = RankingAndSoftBCELoss(neg_weight=args.neg_weight, neg_margin=args.neg_margin)
+        elif args.loss == 'aploss':
+            criterion = APLoss()
+        elif args.loss == 'asl':
+            criterion = AsymmetricLossOptimized(gamma_neg=args.gamma_neg, gamma_pos=args.gamma_pos, ft_cls=None)
+        elif args.loss == 'focal':
+            criterion = BinaryFocalLoss(alpha=args.alpha, gamma=args.gamma)
+        self.criterion = criterion
+        self.args = args
+        
+    def forward(self, train_logits, label):
+        args = self.args
+        criterion = self.criterion
+        batch_size = train_logits.shape[0]
+        label_onehot = one_hot(label.view(batch_size,-1),num_classes=args.num_classes).squeeze(1).float()
+        if args.loss in ['ce']:
+            logit_loss = criterion(train_logits.view(batch_size,-1),label)
+        elif args.loss in ['bce', 'softbce', 'ranking', 'focal', 'asl']:
+            logit_loss = criterion(train_logits.view(batch_size,-1),label_onehot)
+        elif args.loss == 'aploss':
+            logit_loss = criterion.apply(train_logits.view(batch_size,-1),label_onehot)
+        assert not torch.isnan(logit_loss)
+        return logit_loss
+    
 if __name__ == '__main__':
     num_classes = 10
     batch_size = 5
