@@ -115,7 +115,7 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
 
     # 如果只用来评估测试集的性能
     if args.eval_only:
-        ckp = torch.load(os.path.join(args.model_path,'ckp.pt'))
+        ckp = torch.load(os.path.join(args.model_path,'ckp.pt'), weights_only=False)
         model.load_state_dict(ckp['model'])
         val_loop(args,model,test_loader,device,cls_criterion)
         return
@@ -152,7 +152,7 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
     torch.save(ckp, os.path.join(args.model_path, 'ckp.pt'))
     # test
     if not args.no_log:
-        best_std = torch.load(os.path.join(args.model_path, 'ckp.pt'))
+        best_std = torch.load(os.path.join(args.model_path, 'ckp.pt'), weights_only=False)
         info = model.load_state_dict(best_std['model'])
         print_and_log(info, args.log_file)
         
@@ -169,9 +169,11 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,cls_criterion,sch
         n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
         num_total_param = sum(p.numel() for p in model.parameters())
         print_and_log('Number of total parameters: {}, tunable parameters: {}'.format(num_total_param, n_parameters), args.log_file)
-    last_time = time.time()
     
     for i, data in enumerate(loader):
+        time_data_end = time.time()
+        time_data = time_data_end - start
+        
         train_loss = torch.tensor(0., device=device)
         optimizer.zero_grad()
         
@@ -188,9 +190,17 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,cls_criterion,sch
             cls_loss = cls_criterion(train_logits, label)
             losses['cls_loss'] = cls_loss.item()
             train_loss += args.loss_cls_weight * cls_loss
+
+            time_bag_end = time.time()
+            time_bag = time_bag_end - time_data_end
+            time_cluster = 0
+            time_psedo = 0
             
             if args.patch_drop:
                 drop_bag = augment_patch_features(bag).unsqueeze(0)
+                time_cluster_end = time.time()
+                time_cluster = time_cluster_end - time_bag_end
+                
                 train_logits_d = model(drop_bag)  # [B, sum_num_classes]
                 if i < 10:
                     print(drop_bag.shape)
@@ -198,6 +208,12 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,cls_criterion,sch
                 losses['cls_loss_d'] = cls_loss_d.item()
                 train_loss += args.loss_cls_weight * cls_loss_d
                 
+                time_psedo_end = time.time()
+                time_psedo = time_psedo_end - time_cluster_end
+            
+        if i < 10:
+            print('time_data: %.3f, time_bag: %.3f, time_cluster: %.3f, time_psedo: %.3f' % (time_data, time_bag, time_cluster, time_psedo))
+        
         train_loss = train_loss / args.accumulation_steps
         if args.clip_grad > 0.:
             dispatch_clip_grad(
@@ -260,19 +276,15 @@ def val_loop(args,model,loader,device,criterion):
             bag_onehot_labels.extend(label_onehot)
             wsi_names.extend(wsi_name)
             test_logits = test_logits.detach()
+            test_loss = criterion(test_logits.view(batch_size,-1),label)    
             
             if args.loss in ['ce']:
-                test_loss = criterion(test_logits.view(batch_size,-1),label)    
                 if args.num_classes == 2:
                     bag_logits.extend(torch.softmax(test_logits,dim=-1)[:,1].cpu().numpy())
                 else:
                     bag_logits.extend(torch.softmax(test_logits, dim=-1).cpu().numpy())
             # TODO have not updated            
             elif args.loss in ['bce', 'softbce', 'ranking', 'asl', 'focal', 'aploss']:
-                if args.loss in ['bce', 'softbce', 'ranking', 'asl', 'focal']:
-                    test_loss = criterion(test_logits.view(batch_size,-1),label_onehot)
-                elif args.loss == 'aploss':
-                    test_loss = criterion.apply(test_logits.view(batch_size,-1),label_onehot)
                 
                 if args.num_classes == 2:
                     bag_logits.extend(torch.sigmoid(test_logits)[:,1].cpu().numpy())
