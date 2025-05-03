@@ -84,7 +84,7 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
     else:
         train_loader = DataLoader(train_set, batch_size=args.batch_size, sampler=RandomSampler(train_set), num_workers=args.num_workers,collate_fn=collate_fn)
         
-    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,collate_fn=collate_fn)
+    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=0, collate_fn=collate_fn)
 
     model = MIL(input_dim=args.input_dim,
             mlp_dim=512,
@@ -161,7 +161,7 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
     return 
 
 def train_loop(args,model,loader,optimizer,device,amp_autocast,cls_criterion,scheduler,epoch):
-    start = time.time()
+    last_end = start = time.time()
     train_loss_log = 0.
     losses = {}
     model.train()
@@ -171,16 +171,17 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,cls_criterion,sch
         print_and_log('Number of total parameters: {}, tunable parameters: {}'.format(num_total_param, n_parameters), args.log_file)
     
     for i, data in enumerate(loader):
+        # 统计时间
         time_data_end = time.time()
-        time_data = time_data_end - start
+        time_data = time_data_end - last_end
         
         train_loss = torch.tensor(0., device=device)
         optimizer.zero_grad()
         
         bag, label, file_path = data[0].to(device), data[1].to(device), data[2]  # [b,n,1024]
         if i < 10:
-            print(list(map(lambda x: os.path.basename(x), file_path)))
-            print(bag.shape)
+            print_and_log(list(map(lambda x: os.path.basename(x), file_path)))
+            print_and_log(bag.shape)
         # bag_mask = data[3].to(device)  # [b,n,25]
             
         with amp_autocast():
@@ -189,30 +190,35 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,cls_criterion,sch
             train_logits = model(bag) # [B, sum_num_classes]
             cls_loss = cls_criterion(train_logits, label)
             losses['cls_loss'] = cls_loss.item()
-            train_loss += args.loss_cls_weight * cls_loss
-
+            train_loss += cls_loss
+            # 统计时间
             time_bag_end = time.time()
             time_bag = time_bag_end - time_data_end
             time_cluster = 0
             time_psedo = 0
             
             if args.patch_drop:
-                drop_bag = augment_patch_features(bag).unsqueeze(0)
+                drop_bag = augment_patch_features(bag, args).unsqueeze(0)
+                # 统计时间
                 time_cluster_end = time.time()
                 time_cluster = time_cluster_end - time_bag_end
                 
                 train_logits_d = model(drop_bag)  # [B, sum_num_classes]
                 if i < 10:
-                    print(drop_bag.shape)
+                    print_and_log(drop_bag.shape)
                 cls_loss_d = cls_criterion(train_logits_d, label)
                 losses['cls_loss_d'] = cls_loss_d.item()
-                train_loss += args.loss_cls_weight * cls_loss_d
+                train_loss += args.loss_drop_weight * cls_loss_d
+                con_loss_logits = nn.BCEWithLogitsLoss()(train_logits_d, torch.sigmoid(train_logits))
+                losses['con_loss_logits'] = con_loss_logits.item()
+                train_loss += args.loss_drop_weight * con_loss_logits
                 
+                # 统计时间
                 time_psedo_end = time.time()
                 time_psedo = time_psedo_end - time_cluster_end
             
         if i < 10:
-            print('time_data: %.3f, time_bag: %.3f, time_cluster: %.3f, time_psedo: %.3f' % (time_data, time_bag, time_cluster, time_psedo))
+            print_and_log('time_data: %.3f, time_bag: %.3f, time_cluster: %.3f, time_psedo: %.3f' % (time_data, time_bag, time_cluster, time_psedo))
         
         train_loss = train_loss / args.accumulation_steps
         if args.clip_grad > 0.:
@@ -233,10 +239,10 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,cls_criterion,sch
                 print_and_log('[{}/{}] '.format(i, len(loader)-1)
                 + ', '.join(['{}: {:.4f}'.format(k, v) for k, v in losses.items()])
                 + ', lr: {:.5f}'.format(lr), args.log_file)
-                # print_and_log('[{}/{}] logit_loss:{}'.format(i,len(loader)-1,loss_cls_meter.avg), args.log_file)
 
         train_loss_log = train_loss_log + train_loss.item()
-
+        last_end = time.time()
+        
     end = time.time()
     train_loss_log = train_loss_log/len(loader)
     if not args.lr_supi and scheduler is not None:
@@ -261,6 +267,7 @@ def val_loop(args,model,loader,device,criterion):
     bag_logits, bag_labels, bag_onehot_labels, wsi_names = [], [], [], []
     with torch.no_grad():
         for i, data in enumerate(loader):
+            
             bag, label, file_path = data[0].to(device), data[1].to(device), data[2]  # [b,n,1024]
             bag_mask = data[3].to(device)  # [b,n,25]
             batch_size=bag.size(0)
@@ -333,7 +340,7 @@ if __name__ == '__main__':
     
     # Loss
     parser.add_argument('--loss', default='bce', type=str, help='Classification Loss [ce, bce, asl, softbce, ranking, aploss, focal]')
-    parser.add_argument('--loss_cls_weight', default=1., type=float)
+    parser.add_argument('--loss_drop_weight', default=1., type=float)
     parser.add_argument('--gamma_neg', default=4.0, type=float)
     parser.add_argument('--gamma_pos', default=1.0, type=float)
     parser.add_argument('--alpha', default=0.5, type=float)
@@ -358,7 +365,6 @@ if __name__ == '__main__':
     parser.add_argument('--dropout', default=0.25, type=float, help='Dropout in the projection head')
     parser.add_argument('--da_act', default='relu', type=str, help='Activation func in the DAttention [gelu,relu]')
 
-
     # Misc
     parser.add_argument('--model_path', type=str, default='./output-model', help='Output path')
     parser.add_argument('--project', default='gcv15', type=str, help='Project name of exp')
@@ -375,6 +381,10 @@ if __name__ == '__main__':
     parser.add_argument('--keep_psize_collate', type=float, default=0, help='use collate to keep patch size')
     parser.add_argument('--threshold', default=0.5, type=float, help='threshold for evaluation')
     
+    # Ablation for augmentation k-means
+    parser.add_argument('--kmeans-k', default=5, type=int, help='k for k-means')
+    parser.add_argument('--kmeans-ratio', default=0.3, type=float, help='iter for k-means')
+    parser.add_argument('--kmeans-min', default=20, type=int, help='ratio for k-means')
     args = parser.parse_args()
     
     # 通过设置数据集来选择任务和分类的类别数量
@@ -386,7 +396,7 @@ if __name__ == '__main__':
         args.num_classes = 9
         args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc', 't', 'm', 'bv']
     elif args.datasets == 'gc_10k':
-        args.project = 'gc_10k'
+        args.project = 'gc_10k/ablation_kmeans'
         args.train_label_path = '/data/wsi/TCTGC10k-labels/9_labels/TCTGC10k-v15-train.csv'
         args.test_label_path = '/data/wsi/TCTGC10k-labels/9_labels/TCTGC10k-v15-test.csv'
         args.dataset_root = '/data/wsi/TCTGC10k-features/gigapath-coarse'

@@ -226,7 +226,7 @@ class C16Dataset(Dataset):
             else:
                 dir_path = self.root
             file_path = os.path.join(dir_path, self.file_name[idx]+'.pt')
-            features = torch.load(file_path, map_location='cpu')
+            features = torch.load(file_path, map_location='cpu', weights_only=False)
         mask = torch.ones(len(features))
         if self.keep_same_psize > 0:
             features, mask = self._pading_tensor(features)
