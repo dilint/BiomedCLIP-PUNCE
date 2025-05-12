@@ -92,6 +92,9 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
             mil=args.mil_method,
             dropout=args.dropout).to(device)
 
+    if args.pretrain:
+        state_dict = torch.load(args.pretrain_model_path, map_location='cpu', weights_only=False)['model']
+        print(model.load_state_dict(state_dict, strict=False))
     # ***--->construct criterion
     cls_criterion = BuildClsLoss(args)
 
@@ -385,6 +388,10 @@ if __name__ == '__main__':
     parser.add_argument('--kmeans-k', default=5, type=int, help='k for k-means')
     parser.add_argument('--kmeans-ratio', default=0.3, type=float, help='iter for k-means')
     parser.add_argument('--kmeans-min', default=20, type=int, help='ratio for k-means')
+    
+    parser.add_argument('--pretrain', default=0., type=float)
+    parser.add_argument('--pretrain_model_path', default='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/output-model/gc_10k/gigapath-abmil-bce-drop0-50e/epoch_49_model.pt', type=str)
+    
     args = parser.parse_args()
     
     # 通过设置数据集来选择任务和分类的类别数量
@@ -396,7 +403,8 @@ if __name__ == '__main__':
         args.num_classes = 9
         args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc', 't', 'm', 'bv']
     elif args.datasets == 'gc_10k':
-        args.project = 'gc_10k/ablation_kmeans'
+        # args.project = 'gc_10k/ablation_kmeans'
+        args.project = 'gc_10k/pretrain'
         args.train_label_path = '/data/wsi/TCTGC10k-labels/9_labels/TCTGC10k-v15-train.csv'
         args.test_label_path = '/data/wsi/TCTGC10k-labels/9_labels/TCTGC10k-v15-test.csv'
         args.dataset_root = '/data/wsi/TCTGC10k-features/gigapath-coarse'
