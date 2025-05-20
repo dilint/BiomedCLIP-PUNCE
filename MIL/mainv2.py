@@ -212,10 +212,10 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,cls_criterion,sch
                 cls_loss_d = cls_criterion(train_logits_d, label)
                 losses['cls_loss_d'] = cls_loss_d.item()
                 train_loss += args.loss_drop_weight * cls_loss_d
-                con_loss_logits = nn.BCEWithLogitsLoss()(train_logits_d, torch.sigmoid(train_logits))
-                losses['con_loss_logits'] = con_loss_logits.item()
-                train_loss += args.loss_drop_weight * con_loss_logits
-                
+                if epoch >= args.warmup_epoch:
+                    con_loss_logits = nn.BCEWithLogitsLoss()(train_logits_d, torch.sigmoid(train_logits))
+                    losses['con_loss_logits'] = con_loss_logits.item()
+                    train_loss += args.loss_drop_weight * con_loss_logits
                 # 统计时间
                 time_psedo_end = time.time()
                 time_psedo = time_psedo_end - time_cluster_end
@@ -338,7 +338,7 @@ if __name__ == '__main__':
     parser.add_argument('--fine_concat', default=0, type=int, help='flatten the fine feature')
 
     # Train
-    parser.add_argument('--num_epoch', default=50, type=int, help='Number of total training epochs [200]')
+    parser.add_argument('--num_epoch', default=100, type=int, help='Number of total training epochs [200]')
     parser.add_argument('--batch_size', default=1, type=int, help='Number of batch size')
     
     # Loss
@@ -389,6 +389,7 @@ if __name__ == '__main__':
     parser.add_argument('--kmeans-ratio', default=0.3, type=float, help='iter for k-means')
     parser.add_argument('--kmeans-min', default=20, type=int, help='ratio for k-means')
     
+    parser.add_argument('--warmup_epoch', default=50, type=int, help='warmup for patch drop(contrastive loss)')
     parser.add_argument('--pretrain', default=0., type=float)
     parser.add_argument('--pretrain_model_path', default='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/output-model/gc_10k/gigapath-abmil-bce-drop0-50e/epoch_49_model.pt', type=str)
     
@@ -404,10 +405,10 @@ if __name__ == '__main__':
         args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc', 't', 'm', 'bv']
     elif args.datasets == 'gc_10k':
         # args.project = 'gc_10k/ablation_kmeans'
-        args.project = 'gc_10k/pretrain'
+        args.project = 'gc_10k/warmup'
         args.train_label_path = '/data/wsi/TCTGC10k-labels/9_labels/TCTGC10k-v15-train.csv'
         args.test_label_path = '/data/wsi/TCTGC10k-labels/9_labels/TCTGC10k-v15-test.csv'
-        args.dataset_root = '/data/wsi/TCTGC10k-features/gigapath-coarse'
+        args.dataset_root = '/data/wsi/TCTGC10k-features/gigapath-1000'
         args.num_classes = 9
         args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc', 't', 'm', 'bv']
         # args.class_labels = ['NILM', 'ASC-US', 'LSIL', 'ASC-H', 'HSIL', 'AGC','BV', 'M', 'T']
