@@ -405,7 +405,7 @@ if __name__ == '__main__':
         args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc', 't', 'm', 'bv']
     elif args.datasets == 'gc_10k':
         # args.project = 'gc_10k/ablation_kmeans'
-        args.project = 'gc_10k/warmup'
+        args.project = 'gc_10k/warmup-rankloss'
         args.train_label_path = '/data/wsi/TCTGC10k-labels/9_labels/TCTGC10k-v15-train.csv'
         args.test_label_path = '/data/wsi/TCTGC10k-labels/9_labels/TCTGC10k-v15-test.csv'
         args.dataset_root = '/data/wsi/TCTGC10k-features/gigapath-1000'

@@ -8,7 +8,7 @@ min=20
 
 patch_drop=1
 weight=1.
-warmup=25
+warmup=40
 
 epoch=50
 # python mainv2.py --batch_size 1 --num_epoch $epoch --datasets gc_10k \
@@ -20,4 +20,4 @@ epoch=50
 python mainv2.py --batch_size 1 --num_epoch ${epoch} --datasets gc_10k \
     --patch_drop ${patch_drop} --warmup_epoch ${warmup}\
     --title gigapath-abmil-bce-drop${patch_drop}-epoch${epoch}-warmup${warmup} \
-    # --pretrain 1
+    # --title debug \

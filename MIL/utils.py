@@ -150,6 +150,15 @@ def multi_class_scores_mtl(gt_logtis, pred_logits, class_labels, wsi_names, thre
     """
     # 对于多类别样本 拆分成多个样本，预测概率将正确的其他类别概率设为0
     
+    id2labelcode = {
+        0: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        1: [0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+        2: [0.0, 1.0, 1.0, 1.0, 0.0, 0.0],
+        3: [0.0, 1.0, 0.0, 1.0, 0.0, 0.0],
+        4: [0.0, 1.0, 1.0, 1.0, 1.0, 0.0],
+        5: [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+    }
+    
     assert len(class_labels) == 5 or len(class_labels) == 10 or len(class_labels) == 9
     bag_labels = []
     new_pred_logits = []
@@ -182,7 +191,8 @@ def multi_class_scores_mtl(gt_logtis, pred_logits, class_labels, wsi_names, thre
     # 首先评估宫颈癌症风险
     n_cancer_class = len(class_labels_cancer)
     n_cancer_sample = bag_labels_cancer.shape[0]
-    bag_labels_cancer_onehot = np.eye(n_cancer_class)[bag_labels_cancer]
+    # bag_labels_cancer_onehot = np.eye(n_cancer_class)[bag_labels_cancer]
+    bag_labels_cancer_onehot = np.array([id2labelcode[l] for l in bag_labels_cancer])
     bag_pred_cancer_onehot = np.zeros_like(bag_logits_cancer)
     for i in range(1, n_cancer_class):
         roc_auc.append(roc_auc_score(bag_labels_cancer_onehot[:, i], bag_logits_cancer[:, i]))
@@ -192,9 +202,18 @@ def multi_class_scores_mtl(gt_logtis, pred_logits, class_labels, wsi_names, thre
         if np.sum(bag_pred_cancer_onehot[j]) == 0:
             bag_pred_cancer_onehot[j, 0] = 1
         elif np.sum(bag_pred_cancer_onehot[j]) > 1:
-            # 多个类别都大于阈值，则保留最大风险的类别
+            # 多个类别都大于阈值，则保留得分最高的类别
+            # bag_pred_cancer_onehot[j] = 0
+            # bag_pred_cancer_onehot[j, np.argmax(bag_logits_cancer[j, 1:])+1] = 1
+            # 多个类别都大于阈值，则保留评级类别高的
+            rank=[0,2,1,3,4]
             bag_pred_cancer_onehot[j] = 0
-            bag_pred_cancer_onehot[j, np.argmax(bag_logits_cancer[j, 1:])+1] = 1
+            indices = np.where(bag_logits_cancer[j, 1:] == 1)[0]
+            if len(indices) > 0:
+                # 根据 rank 值选择优先级最高的索引
+                selected_index = max(indices, key=lambda x: rank[x])
+                bag_pred_cancer_onehot[j, selected_index+1] = 1
+            
             # 如果该类别被判定为NILM的概率过高 也输出错误信息
             if bag_logits_cancer[j, 0] > 0.95:
                 print(f'[ERROR] {wsi_names[j]} risk prediction is wrong: {[round(risk, 4) for risk in bag_logits_cancer[j]]}')
@@ -223,7 +242,7 @@ def multi_class_scores_mtl(gt_logtis, pred_logits, class_labels, wsi_names, thre
             if np.sum(bag_pred_microbial_onehot[j]) == 0:
                 bag_pred_microbial_onehot[j, 0] = 1
             elif np.sum(bag_pred_microbial_onehot[j]) > 1:
-                # 多个类别都大于阈值，则保留最大风险的类别
+                # 多个类别都大于阈值，则保留得分最高的类别
                 bag_pred_microbial_onehot[j] = 0
                 bag_pred_microbial_onehot[j, np.argmax(bag_logtis_microbial[j,])] = 1
         bag_pred_microbial = np.argmax(bag_pred_microbial_onehot, axis=-1) # [N,]
