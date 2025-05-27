@@ -64,10 +64,12 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
 
     # ***--->load data
     if args.datasets.lower() in ['gc_v15', 'gc_10k']:
-        train_set = C16Dataset(train_p,train_l,root=args.dataset_root, persistence=args.persistence, \
-                                     keep_same_psize=args.same_psize,is_train=True)
-        test_set = C16Dataset(test_p,test_l,root=args.dataset_root, persistence=args.persistence, \
-                                     keep_same_psize=args.same_psize,is_train=False)
+        pad_augmenter = PatchFeatureAugmenter(augment_type='none')
+        drop_augmenter = PatchFeatureAugmenter(kmeans_k=args.kmeans_k, kmeans_ratio=args.kmeans_ratio, kmeans_min=args.kmeans_min)
+        
+        train_set = C16Dataset(train_p,train_l,root=args.dataset_root,persistence=args.persistence)
+        test_set = C16Dataset(test_p,test_l,root=args.dataset_root,persistence=args.persistence,transform=pad_augmenter)
+        aug_train_set = TwoViewAugDataset_index(train_set, pad_augmenter, drop_augmenter)
     else:
         assert f'{args.datasets} dataset not found'
         
@@ -80,9 +82,9 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
         generator = torch.Generator()
         generator.manual_seed(big_seed_list)  
         # TODO 增添补齐的collect_fn
-        train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers,generator=generator,collate_fn=collate_fn)
+        train_loader = DataLoader(aug_train_set, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers,generator=generator,collate_fn=collate_fn)
     else:
-        train_loader = DataLoader(train_set, batch_size=args.batch_size, sampler=RandomSampler(train_set), num_workers=args.num_workers,collate_fn=collate_fn)
+        train_loader = DataLoader(aug_train_set, batch_size=args.batch_size, sampler=RandomSampler(train_set), num_workers=args.num_workers,collate_fn=collate_fn)
         
     test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=0, collate_fn=collate_fn)
 
@@ -121,6 +123,8 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
         ckp = torch.load(os.path.join(args.model_path,'ckp.pt'), weights_only=False)
         model.load_state_dict(ckp['model'])
         val_loop(args,model,test_loader,device,cls_criterion)
+        # train_loader = DataLoader(train_set, batch_size=args.batch_size, num_workers=0)
+        # val_loop(args,model,train_loader,device,cls_criterion)
         return
     
     # 训练epoch
@@ -181,47 +185,31 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,cls_criterion,sch
         train_loss = torch.tensor(0., device=device)
         optimizer.zero_grad()
         
-        bag, label, file_path = data[0].to(device), data[1].to(device), data[2]  # [b,n,1024]
+        bag1, bag2, label, file_path = data[0].to(device), data[1].to(device), data[2].to(device), data[3]  # [b,n,1024]
         if i < 10:
             print_and_log(list(map(lambda x: os.path.basename(x), file_path)))
-            print_and_log(bag.shape)
-        # bag_mask = data[3].to(device)  # [b,n,25]
+            print_and_log(bag1.shape)
             
         with amp_autocast():
-            # if args.mil_method == 'tma':
-            #     train_logits = model(bag, bag_mask)  # [B, sum_num_classes]
-            train_logits = model(bag) # [B, sum_num_classes]
-            cls_loss = cls_criterion(train_logits, label)
+            train_logits1 = model(bag1) # [B, sum_num_classes]
+            train_logits2 = model(bag2) # [B, sum_num_classes]
+            cls_loss = cls_criterion(train_logits1, label)
             losses['cls_loss'] = cls_loss.item()
             train_loss += cls_loss
-            # 统计时间
-            time_bag_end = time.time()
-            time_bag = time_bag_end - time_data_end
-            time_cluster = 0
-            time_psedo = 0
+            cls_loss_d = cls_criterion(train_logits2, label)
+            losses['cls_loss_d'] = cls_loss_d.item()
+            train_loss += args.loss_drop_weight * cls_loss_d
+            if epoch >= args.warmup_epoch:
+                con_loss_logits = nn.BCEWithLogitsLoss()(train_logits2, torch.sigmoid(train_logits1))
+                losses['con_loss_logits'] = con_loss_logits.item()
+                train_loss += args.loss_drop_weight * con_loss_logits
             
-            if args.patch_drop:
-                drop_bag = augment_patch_features(bag, args).unsqueeze(0)
-                # 统计时间
-                time_cluster_end = time.time()
-                time_cluster = time_cluster_end - time_bag_end
-                
-                train_logits_d = model(drop_bag)  # [B, sum_num_classes]
-                if i < 10:
-                    print_and_log(drop_bag.shape)
-                cls_loss_d = cls_criterion(train_logits_d, label)
-                losses['cls_loss_d'] = cls_loss_d.item()
-                train_loss += args.loss_drop_weight * cls_loss_d
-                if epoch >= args.warmup_epoch:
-                    con_loss_logits = nn.BCEWithLogitsLoss()(train_logits_d, torch.sigmoid(train_logits))
-                    losses['con_loss_logits'] = con_loss_logits.item()
-                    train_loss += args.loss_drop_weight * con_loss_logits
-                # 统计时间
-                time_psedo_end = time.time()
-                time_psedo = time_psedo_end - time_cluster_end
+            # 统计时间
+            time_forward_end = time.time()
+            time_forward = time_forward_end - time_data_end
             
         if i < 10:
-            print_and_log('time_data: %.3f, time_bag: %.3f, time_cluster: %.3f, time_psedo: %.3f' % (time_data, time_bag, time_cluster, time_psedo))
+            print_and_log('time_data: %.3f, time_forward: %.3f' % (time_data, time_forward))
         
         train_loss = train_loss / args.accumulation_steps
         if args.clip_grad > 0.:
@@ -268,19 +256,16 @@ def val_loop(args,model,loader,device,criterion):
     loss_cls_meter = AverageMeter()
     
     bag_logits, bag_labels, bag_onehot_labels, wsi_names = [], [], [], []
+    pad_augmenter = PatchFeatureAugmenter(augment_type='none')
     with torch.no_grad():
         for i, data in enumerate(loader):
             
             bag, label, file_path = data[0].to(device), data[1].to(device), data[2]  # [b,n,1024]
-            bag_mask = data[3].to(device)  # [b,n,25]
             batch_size=bag.size(0)
             label_onehot = one_hot(label.view(batch_size,-1),num_classes=args.num_classes).squeeze(1).float()
             wsi_name = [os.path.basename(wsi_path) for wsi_path in data[2]]
             
-            if args.mil_method == 'tma':
-                test_logits = model(bag, bag_mask)
-            else:
-                test_logits = model(bag)
+            test_logits = model(pad_augmenter(bag))
             batch_size = bag.size(0)
             bag_labels.extend(data[1])
             bag_onehot_labels.extend(label_onehot)
@@ -304,9 +289,9 @@ def val_loop(args,model,loader,device,criterion):
     
     class_labels = args.class_labels
     bag_onehot_labels = [label.cpu() for label in bag_onehot_labels]
-    roc_auc, accuracies, recalls, precisions, fscores, cancer_matrix, microbial_matrix = multi_class_scores_mtl(bag_onehot_labels, bag_logits, class_labels, wsi_names, threshold=args.threshold)
+    roc_auc, accuracies, recalls, precisions, fscores, thresholds, cancer_matrix, microbial_matrix = multi_class_scores_mtl(bag_onehot_labels, bag_logits, class_labels, wsi_names, threshold=args.threshold)
     output_excel_path = os.path.join(args.model_path, 'metrics.xlsx')
-    save_metrics_to_excel(roc_auc, accuracies, recalls, precisions, fscores, cancer_matrix, microbial_matrix, class_labels, output_excel_path)
+    save_metrics_to_excel(roc_auc, accuracies, recalls, precisions, fscores, thresholds, cancer_matrix, microbial_matrix, class_labels, output_excel_path)
     if args.save_logits:
         output_logits_path = os.path.join(args.model_path, 'logits.csv')
         save_logits(bag_onehot_labels, bag_logits, class_labels, wsi_names, output_logits_path)
@@ -334,7 +319,6 @@ if __name__ == '__main__':
     
     # Dataset aug    
     parser.add_argument('--imbalance_sampler', default=0, type=float, help='if use imbalance_sampler')
-    parser.add_argument('--same_psize', default=0, type=int, help='Keep the same size of all patches [0]')
     parser.add_argument('--fine_concat', default=0, type=int, help='flatten the fine feature')
 
     # Train
@@ -375,7 +359,7 @@ if __name__ == '__main__':
     parser.add_argument('--log_iter', default=100, type=int, help='Log Frequency')
     parser.add_argument('--amp', action='store_true', help='Automatic Mixed Precision Training')
     parser.add_argument('--wandb', action='store_true', help='Weight&Bias')
-    parser.add_argument('--num_workers', default=16, type=int, help='Number of workers in the dataloader')
+    parser.add_argument('--num_workers', default=0, type=int, help='Number of workers in the dataloader')
     parser.add_argument('--save_epoch', default=25, type=int, help='epoch number to save model')
     parser.add_argument('--save_logits', default=1, type=int, help='if save logits in eval loop')
     parser.add_argument('--no_log', action='store_true', help='Without log')
@@ -406,11 +390,12 @@ if __name__ == '__main__':
     elif args.datasets == 'gc_10k':
         # args.project = 'gc_10k/ablation_kmeans'
         args.project = 'gc_10k/warmup-rankloss'
-        args.train_label_path = '/data/wsi/TCTGC10k-labels/9_labels/TCTGC10k-v15-train.csv'
-        args.test_label_path = '/data/wsi/TCTGC10k-labels/9_labels/TCTGC10k-v15-test.csv'
-        args.dataset_root = '/data/wsi/TCTGC10k-features/gigapath-1000'
-        args.num_classes = 9
-        args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc', 't', 'm', 'bv']
+        args.train_label_path = '/data/wsi/TCTGC10k-labels/6_labels/TCTGC10k-v15-train.csv'
+        args.test_label_path = '/data/wsi/TCTGC10k-labels/6_labels/TCTGC10k-v15-test.csv'
+        args.dataset_root = '/data/wsi/TCTGC50k-features/gigapath-coarse'
+        # args.dataset_root = '/data/wsi/TCTGC10k-features/gigapath-1000'
+        args.num_classes = 6
+        args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
         # args.class_labels = ['NILM', 'ASC-US', 'LSIL', 'ASC-H', 'HSIL', 'AGC','BV', 'M', 'T']
     else:
         assert f'{args.datasets} is not supported'

@@ -19,81 +19,40 @@ from modules.vit_wsi.model_v1 import Model_V1
 from timm.utils import AverageMeter,dispatch_clip_grad
 from timm.models import  model_parameters
 from collections import OrderedDict
+from augments import *
 from utils import *
 
+id2label = {
+    0: 'nilm',
+    1: 'ascus',
+    2: 'asch',
+    3: 'lsil',
+    4: 'hsil',
+    5: 'agc',
+    6: 't',
+    7: 'm',
+    8: 'bv',}
+label2id = {v: k for k, v in id2label.items()}
 
 def main(args):
     # set seed
     seed_torch(args.seed)
-    
-    # --->划分数据集, 一类是camelyon16采用n-fold交叉验证，另一类是tct-gc使用划分好的数据集
-    if args.datasets.lower() == 'camelyon16':       
-            label_path=os.path.join(args.dataset_root,'label.csv')
-            p, l = get_patient_label(label_path)
-            index = [i for i in range(len(p))]
-            random.shuffle(index)
-            p = p[index]
-            l = l[index]
             
-    elif args.datasets.lower() in ['ngc', 'gc', 'fnac', 'gc_mtl']:
-        ps, ls = [], []
-        label_paths = [args.train_label_path, args.val_label_path, args.test_label_path]
-        for label_path in label_paths:
-            df = pd.read_csv(label_path)
-            p, l = df.iloc[:, 0].values, df.iloc[:, 1].values
-            ps.append(p)
-            ls.append(l)
-        train_p, val_p, test_p = ps
-        train_l, val_l, test_l = ls
-    if args.cv_fold > 1:
-        train_p, train_l, test_p, test_l, val_p, val_l = get_kflod(args.cv_fold, p, l,args.val_ratio)
-    else:
-        train_p, train_l, test_p, test_l, val_p, val_l = [train_p], [train_l], [test_p], [test_l], [val_p], [val_l]
-    
-    acs, pre, rec,fs,auc, te_auc, te_fs=[],[],[],[],[],[],[]
+    if 'gc' in args.datasets.lower() :
+        df_train = pd.read_csv(args.train_label_path)
+        train_wsi_names = df_train['wsi_name'].values
+        train_wsi_labels = df_train['wsi_label'].map(label2id).values
+        df_test = pd.read_csv(args.test_label_path)
+        test_wsi_names = df_test['wsi_name'].values
+        test_wsi_labels = df_test['wsi_label'].map(label2id).values
+    acs, pre, rec, fs, auc, te_auc, te_fs=[],[],[],[],[],[],[]
     ckc_metric = [acs, pre, rec, fs, auc, te_auc, te_fs] # acs: [fold, fold] fold: [task1, task2]
 
     if not args.no_log:
-        print('Dataset: ' + args.datasets)
+        print_and_log('Dataset: ' + args.datasets, args.log_file)
+    one_fold(args, ckc_metric, train_wsi_names, train_wsi_labels, test_wsi_names, test_wsi_labels)
 
-    # resume
-    # if args.auto_resume and not args.no_log:
-    #     ckp = torch.load(os.path.join(args.model_path,'ckp.pt'))
-    #     args.fold_start = ckp['k']
-    #     if len(ckp['ckc_metric']) == 6:
-    #         acs, pre, rec, fs, auc, te_auc = ckp['ckc_metric']
-    #     elif len(ckp['ckc_metric']) == 7:
-    #         acs, pre, rec, fs, auc, te_auc, te_fs = ckp['ckc_metric']
-    #     else:
-    #         acs, pre, rec,fs,auc = ckp['ckc_metric']
-    
-    for k in range(args.fold_start, args.cv_fold):
-        if not args.no_log:
-            print('Start %d-fold cross validation: fold %d ' % (args.cv_fold, k))
-        ckc_metric = one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l)
-
-    # if args.wandb:
-    #     wandb.log({
-    #         "cross_val/acc_mean":np.mean(np.array(acs)),
-    #         "cross_val/auc_mean":np.mean(np.array(auc)),
-    #         "cross_val/f1_mean":np.mean(np.array(fs)),
-    #         "cross_val/pre_mean":np.mean(np.array(pre)),
-    #         "cross_val/recall_mean":np.mean(np.array(rec)),
-    #         "cross_val/acc_std":np.std(np.array(acs)),
-    #         "cross_val/auc_std":np.std(np.array(auc)),
-    #         "cross_val/f1_std":np.std(np.array(fs)),
-    #         "cross_val/pre_std":np.std(np.array(pre)),
-    #         "cross_val/recall_std":np.std(np.array(rec)),
-    #     })
-    # if not args.no_log:
-    #     print('Cross validation accuracy mean: %.3f, std %.3f ' % (np.mean(np.array(acs)), np.std(np.array(acs))))
-    #     print('Cross validation auc mean: %.3f, std %.3f ' % (np.mean(np.array(auc)), np.std(np.array(auc))))
-    #     print('Cross validation precision mean: %.3f, std %.3f ' % (np.mean(np.array(pre)), np.std(np.array(pre))))
-    #     print('Cross validation recall mean: %.3f, std %.3f ' % (np.mean(np.array(rec)), np.std(np.array(rec))))
-    #     print('Cross validation fscore mean: %.3f, std %.3f ' % (np.mean(np.array(fs)), np.std(np.array(fs))))
-
-
-def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
+def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
     # --->initiation
     if args.keep_psize_collate:
         collate_fn = collate_fn_wsi
@@ -104,23 +63,18 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     acs,pre,rec,fs,auc,te_auc,te_fs = ckc_metric
 
     # ***--->load data
-    if args.datasets.lower() == 'gc_mtl':
-        train_set = GcMTLDataset(train_p[k],train_l[k],root=args.dataset_root,num_task=args.num_task, \
-                                 num_classes=args.num_classes,persistence=args.persistence, \
-                                     keep_same_psize=args.same_psize,is_train=True,fine_concat=args.fine_concat)
-        test_set = GcMTLDataset(test_p[k],test_l[k],root=args.dataset_root,num_task=args.num_task, \
-            num_classes=args.num_classes,persistence=args.persistence,keep_same_psize=args.same_psize,\
-                fine_concat=args.fine_concat)
-        val_set = GcMTLDataset(val_p[k],val_l[k],root=args.dataset_root,num_task=args.num_task,num_classes=args.num_classes,persistence=args.persistence,keep_same_psize=args.same_psize,fine_concat=args.fine_concat)
+    if args.datasets.lower() in ['gc_v15', 'gc_10k']:
+        pad_augmenter = PatchFeatureAugmenter(augment_type='none')
+        drop_augmenter = PatchFeatureAugmenter(kmeans_k=args.kmeans_k, kmeans_ratio=args.kmeans_ratio, kmeans_min=args.kmeans_min)
+        
+        if args.patch_drop:
+            train_set = C16Dataset(train_p,train_l,root=args.dataset_root,persistence=args.persistence,transform=drop_augmenter)
+        else:
+            train_set = C16Dataset(train_p,train_l,root=args.dataset_root,persistence=args.persistence,transform=pad_augmenter)
+        test_set = C16Dataset(test_p,test_l,root=args.dataset_root,persistence=args.persistence,transform=pad_augmenter)
     else:
-        train_set = C16Dataset(train_p[k],train_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize,is_train=True)
-        test_set = C16Dataset(test_p[k],test_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
-        val_set = C16Dataset(val_p[k],val_l[k],root=args.dataset_root,persistence=args.persistence,keep_same_psize=args.same_psize)
-    
-    if args.datasets.lower() == 'camelyon16':
-        if args.val_ratio == 0.:
-            val_set = test_set
-            
+        assert f'{args.datasets} dataset not found'
+        
     if args.imbalance_sampler:
         train_set = ClassBalancedDataset(train_set, oversample_thr=0.22)
     
@@ -134,40 +88,19 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     else:
         train_loader = DataLoader(train_set, batch_size=args.batch_size, sampler=RandomSampler(train_set), num_workers=args.num_workers,collate_fn=collate_fn)
         
-    val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,collate_fn=collate_fn)
-    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,collate_fn=collate_fn)
+    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=0, collate_fn=collate_fn)
 
-    # ***--->construct model
-    if args.mil_method == 'tma':
-        model = Model_V1(
-        in_dims=args.input_dim,
-        num_classes=args.num_classes,
-        depth=4,
-        num_heads=4,
-        proj_drop=0.02,
-        attn_drop=0.02,
-        drop_path=0.01,).to(device)
-    else:
-        model = MIL_MTL(input_dim=args.input_dim, 
-                num_classes=args.num_classes, 
-                num_task=args.num_task,
-                mil=args.mil_method,
-                dropout=args.dropout, 
-                act=args.act).to(device)
+    model = MIL(input_dim=args.input_dim,
+            mlp_dim=512,
+            n_classes=args.num_classes,
+            mil=args.mil_method,
+            dropout=args.dropout).to(device)
 
+    if args.pretrain:
+        state_dict = torch.load(args.pretrain_model_path, map_location='cpu', weights_only=False)['model']
+        print(model.load_state_dict(state_dict, strict=False))
     # ***--->construct criterion
-    if args.loss == 'bce':
-        criterion = nn.BCEWithLogitsLoss()
-    elif args.loss == 'ce':
-        criterion = nn.CrossEntropyLoss()
-    elif args.loss == 'softbce':
-        criterion = MySoftBCELoss(neg_weight=args.neg_weight)
-    elif args.loss == 'ranking':
-        criterion = RankingAndSoftBCELoss(neg_weight=args.neg_weight, neg_margin=args.neg_margin)
-    elif args.loss == 'aploss':
-        criterion = APLoss()
-    elif args.loss == 'focal':
-        criterion = FocalLoss(alpha=torch.tensor([0.5, 1, 1, 1, 1]))
+    cls_criterion = BuildClsLoss(args)
 
     # optimizer
     if args.opt == 'adamw':
@@ -185,80 +118,26 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
     elif args.lr_sche == 'const':
         scheduler = None
 
-    if args.early_stopping:
-        early_stopping = EarlyStopping(patience=30 if args.datasets=='camelyon16' else 20, stop_epoch=args.max_epoch if args.datasets=='camelyon16' else 70,save_best_model_stage=np.ceil(args.save_best_model_stage * args.num_epoch))
-    else:
-        early_stopping = None
-
-    opt_ac, opt_pre, opt_re, opt_fs, opt_auc, opt_epoch = 0, 0, 0, 0, 0, 0
-    epoch_start = 0
-
-    # resume
-    # if args.auto_resume and not args.no_log:
-    #     ckp = torch.load(os.path.join(args.model_path,'ckp.pt'))
-    #     epoch_start = ckp['epoch']
-    #     model.load_state_dict(ckp['model'])
-    #     optimizer.load_state_dict(ckp['optimizer'])
-    #     scheduler.load_state_dict(ckp['lr_sche'])
-    #     early_stopping.load_state_dict(ckp['early_stop'])
-    #     opt_ac, opt_pre, opt_re, opt_fs, opt_auc,opt_epoch = ckp['val_best_metric']
-    #     np.random.set_state(ckp['random']['np'])
-    #     torch.random.set_rng_state(ckp['random']['torch'])
-    #     random.setstate(ckp['random']['py'])
-    #     if args.fix_loader_random:
-    #         train_loader.sampler.generator.set_state(ckp['random']['loader'])
-    #     args.auto_resume = False
-
     train_time_meter = AverageMeter()
 
     # 如果只用来评估测试集的性能
     if args.eval_only:
-        ckp = torch.load(os.path.join(args.model_path,'ckp.pt'))
+        ckp = torch.load(os.path.join(args.model_path,'ckp.pt'), weights_only=False)
         model.load_state_dict(ckp['model'])
-        val_loop(args,model,test_loader,device,criterion,early_stopping,epoch=0,test_mode=True,\
-            data_split='test')
+        val_loop(args,model,test_loader,device,cls_criterion)
+        # train_loader = DataLoader(train_set, batch_size=args.batch_size, num_workers=0)
+        # val_loop(args,model,train_loader,device,cls_criterion)
         return
     
     # 训练epoch
-    for epoch in range(epoch_start, args.num_epoch):
-        train_loss,start,end = train_loop(args,model,train_loader,optimizer,device,amp_autocast,criterion,scheduler,k,epoch)
+    for epoch in range(args.num_epoch):
+        train_loss, start, end = 0, 0, 0
+        train_loss,start,end = train_loop(args,model,train_loader,optimizer,device,amp_autocast,cls_criterion,scheduler,epoch)
         train_time_meter.update(end-start)
         
-        # train_set acc
-        # if epoch % 5 == 0:
-        #     print('Info: Evaluation for train set')
-        #     val_loop(args,model,train_loader,device,criterion, early_stopping,epoch,test_mode=True,data_split='train')
-        
-        print('Info: Evaluation for val set')
-        stop, aucs, acc, recs, precs, f1s, test_loss = val_loop(args,model,val_loader,device,criterion,\
-            early_stopping,epoch,data_split='val')
-        
         if not args.no_log:
-            print('\r Epoch [%d/%d] train loss: %.1E, test loss: %.1E, time: %.3f(%.3f)' % 
-        (epoch+1, args.num_epoch, train_loss, test_loss, train_time_meter.val,train_time_meter.avg))
-            
-        auc_mean, acc_mean, rec_mean, prec_mean, f1_mean = np.mean(aucs), acc, np.mean(recs), np.mean(precs), np.mean(f1s)
-        if rec_mean > opt_re and epoch >= args.save_best_model_stage*args.num_epoch:
-            opt_auc, opt_ac, opt_rec, opt_prec, opt_f1, opt_epoch = auc_mean, acc_mean, rec_mean, prec_mean, f1_mean, epoch
-            if not os.path.exists(args.model_path):
-                os.mkdir(args.model_path)
-            if not args.no_log:
-                best_pt = {
-                    'model': model.state_dict(),
-                }
-                torch.save(best_pt, os.path.join(args.model_path, 'fold_{fold}_model_best_recall.pt'.format(fold=k)))
-        # if args.wandb:
-        #     rowd = OrderedDict([
-        #         ("val_best_acc",opt_ac),
-        #         ("val_best_precesion",opt_pre),
-        #         ("val_best_recall",opt_re),
-        #         ("val_best_fscore",opt_fs),
-        #         ("val_best_auc",opt_auc),
-        #         ("val_best_epoch",opt_epoch),
-        #     ])
-
-        #     rowd = OrderedDict([ (str(k)+'-fold/'+_k,_v) for _k, _v in rowd.items()])
-        #     wandb.log(rowd)
+            print_and_log('\r Epoch [%d/%d] train loss: %.1E, time: %.3f(%.3f)' % 
+        (epoch+1, args.num_epoch, train_loss, train_time_meter.val, train_time_meter.avg), args.log_file)
         
         # save checkpoint
         random_state = {
@@ -272,106 +151,60 @@ def one_fold(args,k,ckc_metric,train_p, train_l, test_p, test_l,val_p,val_l):
             'lr_sche': scheduler.state_dict(),
             'optimizer': optimizer.state_dict(),
             'epoch': epoch+1,
-            'k': k,
-            'early_stop': early_stopping.state_dict(),
             'random': random_state,
             'ckc_metric': [acs,pre,rec,fs,auc,te_auc,te_fs],
-            'val_best_metric': [opt_ac, opt_pre, opt_re, opt_fs, opt_auc,opt_epoch],
-            'wandb_id': wandb.run.id if args.wandb else '',
         }
-        if not args.no_log:
-            torch.save(ckp, os.path.join(args.model_path, 'ckp.pt'))
+        if epoch % args.save_epoch == 0 or epoch == args.num_epoch-1:
+            ckp_file_name = f'epoch_{epoch}_model.pt'
+            torch.save(ckp, os.path.join(args.model_path, ckp_file_name))
 
-        if stop:
-            break
-
+    torch.save(ckp, os.path.join(args.model_path, 'ckp.pt'))
     # test
     if not args.no_log:
-        best_std = torch.load(os.path.join(args.model_path, 'fold_{fold}_model_best_recall.pt'.format(fold=k)))
+        best_std = torch.load(os.path.join(args.model_path, 'ckp.pt'), weights_only=False)
         info = model.load_state_dict(best_std['model'])
-        print(info)
+        print_and_log(info, args.log_file)
         
-    print('Info: Evaluation for test set')
-    aucs, acc, recs, precs, f1s, test_loss = val_loop(args,model,test_loader,device,criterion,early_stopping,\
-        epoch,test_mode=True,data_split='test')
-    res = OrderedDict([
-            ("test_auc_mean", np.mean(aucs)),
-            ("test_acc_mean", acc),
-            ("test_recall_mean", np.mean(recs)),
-            ("test_precision_mean", np.mean(precs)),
-            ("test_fscore_mean", np.mean(f1s)),
-            ("test_loss",test_loss.cpu()),
-        ])
-    df = pd.DataFrame(res, index=[1])
-    df.to_excel(os.path.join(args.model_path, 'evaluation.xlsx'), index=False)
-    
-    if not args.no_log:
-        print('\n Optimal accuracy: %.3f ,Optimal auc: %.3f,Optimal precision: %.3f,Optimal recall: %.3f,Optimal fscore: %.3f' \
-            % (opt_ac,opt_auc,opt_pre,opt_re,opt_fs))
-    auc_fold, acc_fold, rec_fold, prec_fold, f1_fold = [], [], [], [], []
-    auc_fold.append(np.mean(aucs))
-    acc_fold.append(acc)
-    rec_fold.append(np.mean(recs))
-    prec_fold.append(np.mean(precs))
-    f1_fold.append(f1s)
-    return [auc_fold,acc_fold,rec_fold,prec_fold,f1_fold]
+    print_and_log('Info: Evaluation for test set', args.log_file)
+    aucs, acc, recs, precs, f1s, test_loss = val_loop(args,model,test_loader,device,cls_criterion)
+    return 
 
-def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,scheduler,k,epoch):
-    start = time.time()
-    loss_cls_meter = AverageMeter()
+def train_loop(args,model,loader,optimizer,device,amp_autocast,cls_criterion,scheduler,epoch):
+    last_end = start = time.time()
     train_loss_log = 0.
+    losses = {}
     model.train()
-    sum_num_classes = sum(args.num_classes)
-    n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    num_total_param = sum(p.numel() for p in model.parameters())
     if not args.no_log:
-        print('Number of total parameters: {}, tunable parameters: {}'.format(num_total_param, n_parameters))
+        n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        num_total_param = sum(p.numel() for p in model.parameters())
+        print_and_log('Number of total parameters: {}, tunable parameters: {}'.format(num_total_param, n_parameters), args.log_file)
     
-    last_time = time.time()
     for i, data in enumerate(loader):
-        optimizer.zero_grad()
-
-        # now_time = time.time()
-        # print(f'数据加载时间：Time elapsed: {now_time - last_time:.2f} seconds')
-        # last_time = now_time
+        # 统计时间
+        time_data_end = time.time()
+        time_data = time_data_end - last_end
         
-        bag, label, task_id = data[0].to(device), data[1].to(device), data[2].to(device)  # [b,n,1024]
-        bag_mask = data[4].to(device)  # [b,n,25]
-        batch_size=bag.size(0)
+        train_loss = torch.tensor(0., device=device)
+        optimizer.zero_grad()
+        
+        bag, label, file_path = data[0].to(device), data[1].to(device), data[2]  # [b,n,1024]
+        if i < 10:
+            print_and_log(list(map(lambda x: os.path.basename(x), file_path)))
+            print_and_log(bag.shape)
             
         with amp_autocast():
-            if args.patch_shuffle:
-                bag = patch_shuffle(bag,args.shuffle_group)
-            elif args.group_shuffle:
-                bag = group_shuffle(bag,args.shuffle_group)
-
-            # TODO 一阶段方法传入bag, task_id , 两阶段方法传入bag, mask 
-            if args.mil_method == 'tma':
-                train_logits = model(bag, bag_mask)  # [B, sum_num_classes]
-            else:
-                train_logits = model(bag, task_id) # [B, sum_num_classes]
-                
-            # now_time = time.time()
-            # print(f'模型前向推理时间：Time elapsed: {now_time - last_time:.2f} seconds')
-            # last_time = now_time
+            train_logits = model(bag) # [B, sum_num_classes]
+            cls_loss = cls_criterion(train_logits, label)
+            losses['cls_loss'] = cls_loss.item()
+            train_loss += cls_loss
             
-            # if args.loss != 'ce':
-            #     train_logits = torch.sigmoid(train_logits)    
+            # 统计时间
+            time_forward_end = time.time()
+            time_forward = time_forward_end - time_data_end
             
-            if args.loss in ['ce', 'focal']:
-                logit_loss = criterion(train_logits.view(batch_size,-1),label)
-            elif args.loss in ['bce', 'softbce', 'ranking']:
-                logit_loss = criterion(train_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=sum_num_classes).squeeze(1).float())
-            elif args.loss == 'aploss':
-                logit_loss = criterion.apply(train_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=sum_num_classes).squeeze(1).float())
-            assert not torch.isnan(logit_loss)
-
-            # now_time = time.time()
-            # print(f'损失计算时间：Time elapsed: {now_time - last_time:.2f} seconds')
-            # last_time = now_time
-            
-        train_loss = logit_loss
-
+        if i < 10:
+            print_and_log('time_data: %.3f, time_forward: %.3f' % (time_data, time_forward))
+        
         train_loss = train_loss / args.accumulation_steps
         if args.clip_grad > 0.:
             dispatch_clip_grad(
@@ -383,37 +216,26 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,criterion,schedul
             optimizer.step()
             if args.lr_supi and scheduler is not None:
                 scheduler.step()
-                
-            # now_time = time.time()
-            # print(f'反向推理时间：Time elapsed: {now_time - last_time:.2f} seconds')
-            # last_time = now_time
-            
-        loss_cls_meter.update(logit_loss,1)
 
         if i % args.log_iter == 0 or i == len(loader)-1:
             lrl = [param_group['lr'] for param_group in optimizer.param_groups]
             lr = sum(lrl) / len(lrl)
-            rowd = OrderedDict([
-                ('train_loss', train_loss),
-                ('lr',lr),
-            ])
             if not args.no_log:
-                print('[{}/{}] logit_loss:{}'.format(i,len(loader)-1,loss_cls_meter.avg))
-            rowd = OrderedDict([ (_k,_v) for _k, _v in rowd.items()])
-            if args.wandb:
-                wandb.log(rowd)
+                print_and_log('[{}/{}] '.format(i, len(loader)-1)
+                + ', '.join(['{}: {:.4f}'.format(k, v) for k, v in losses.items()])
+                + ', lr: {:.5f}'.format(lr), args.log_file)
 
         train_loss_log = train_loss_log + train_loss.item()
-
+        last_end = time.time()
+        
     end = time.time()
-    
     train_loss_log = train_loss_log/len(loader)
     if not args.lr_supi and scheduler is not None:
         scheduler.step()
     
     return train_loss_log,start,end
 
-def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=False,data_split='val'):
+def val_loop(args,model,loader,device,criterion):
     """
     返回:
         stop (bool): 是否earlystop
@@ -426,119 +248,84 @@ def val_loop(args,model,loader,device,criterion,early_stopping,epoch,test_mode=F
     """
     model.eval()
     loss_cls_meter = AverageMeter()
-    all_class_labels = []
-    for _class_labels in args.class_labels:
-        all_class_labels.extend(_class_labels)
-    sum_num_classes=len(all_class_labels)
     
-    bag_logits, bag_labels, wsi_names = [], [], []
+    bag_logits, bag_labels, bag_onehot_labels, wsi_names = [], [], [], []
+    pad_augmenter = PatchFeatureAugmenter(augment_type='none')
     with torch.no_grad():
         for i, data in enumerate(loader):
-            bag, label, task_id = data[0].to(device), data[1].to(device), data[2] # b*n*1024
-            bag_mask = data[4].to(device)  # [b,n,25]
-            wsi_name = [os.path.basename(_) for _ in data[3]]
             
-            if args.mil_method == 'tma':
-                test_logits = model(bag, bag_mask)
-            else:
-                test_logits = model(bag, task_id)
+            bag, label, file_path = data[0].to(device), data[1].to(device), data[2]  # [b,n,1024]
+            batch_size=bag.size(0)
+            label_onehot = one_hot(label.view(batch_size,-1),num_classes=args.num_classes).squeeze(1).float()
+            wsi_name = [os.path.basename(wsi_path) for wsi_path in data[2]]
+            
+            test_logits = model(pad_augmenter(bag))
             batch_size = bag.size(0)
             bag_labels.extend(data[1])
+            bag_onehot_labels.extend(label_onehot)
             wsi_names.extend(wsi_name)
             test_logits = test_logits.detach()
+            test_loss = criterion(test_logits.view(batch_size,-1),label)    
             
             if args.loss in ['ce']:
-                test_loss = criterion(test_logits.view(batch_size,-1),label)    
-                if len(all_class_labels) == 2:
+                if args.num_classes == 2:
                     bag_logits.extend(torch.softmax(test_logits,dim=-1)[:,1].cpu().numpy())
                 else:
                     bag_logits.extend(torch.softmax(test_logits, dim=-1).cpu().numpy())
             # TODO have not updated            
-            elif args.loss in ['bce', 'softbce', 'ranking', 'aploss', 'focal']:
-                if args.loss in ['focal']:
-                    test_loss = criterion(test_logits.view(batch_size,-1),label)
-                elif args.loss in ['bce', 'softbce', 'ranking']:
-                    test_loss = criterion(test_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=sum_num_classes).squeeze(1).float())
-                elif args.loss == 'aploss':
-                    test_loss = criterion.apply(test_logits.view(batch_size,-1),one_hot(label.view(batch_size,-1),num_classes=sum_num_classes).squeeze(1).float())
+            elif args.loss in ['bce', 'softbce', 'ranking', 'asl', 'focal', 'aploss']:
                 
-                if all_class_labels == 2:
+                if args.num_classes == 2:
                     bag_logits.extend(torch.sigmoid(test_logits)[:,1].cpu().numpy())
                 else:
                     bag_logits.extend(torch.sigmoid(test_logits).cpu().numpy())
             loss_cls_meter.update(test_loss,1)
     
-    aucs, acc, recs, precs, f1s = multi_class_scores_mtl(bag_labels, bag_logits, all_class_labels, wsi_names, args.threshold, args.eval_only)
+    class_labels = args.class_labels
+    bag_onehot_labels = [label.cpu() for label in bag_onehot_labels]
+    roc_auc, accuracies, recalls, precisions, fscores, thresholds, cancer_matrix, microbial_matrix = multi_class_scores_mtl(bag_onehot_labels, bag_logits, class_labels, wsi_names, threshold=args.threshold)
+    output_excel_path = os.path.join(args.model_path, 'metrics.xlsx')
+    save_metrics_to_excel(roc_auc, accuracies, recalls, precisions, fscores, thresholds, cancer_matrix, microbial_matrix, class_labels, output_excel_path)
+    if args.save_logits:
+        output_logits_path = os.path.join(args.model_path, 'logits.csv')
+        save_logits(bag_onehot_labels, bag_logits, class_labels, wsi_names, output_logits_path)
     
-    # cancer任务的指标
-    aucs_task1, recs_task1, precs_task1, f1s_task1 = aucs[:5], recs[:5], precs[:5], f1s[:5]
-    rowd = OrderedDict([(f"auc",np.mean(aucs_task1)),  (f"recall",np.mean(recs_task1)),\
-                        (f"precision",np.mean(precs_task1)),(f"fscore",np.mean(f1s_task1)),])
-    rowd = OrderedDict([ (f'cancer-task/{data_split}_'+_k,_v) for _k, _v in rowd.items()]+[('epoch',epoch)])
-    if args.wandb:
-        wandb.log(rowd)
-    print(rowd)
-    # microbial任务的指标
-    if len(aucs) > 4:
-        aucs_task2, recs_task2, precs_task2, f1s_task2 = aucs[5:], recs[5:], precs[5:], f1s[5:]
-        rowd = OrderedDict([(f"auc",np.mean(aucs_task2)),  (f"recall",np.mean(recs_task2)),\
-                            (f"precision",np.mean(precs_task2)),(f"fscore",np.mean(f1s_task2)),])
-        rowd = OrderedDict([ (f'microbial-task/{data_split}_'+_k,_v) for _k, _v in rowd.items()]+[('epoch',epoch)])
-        if args.wandb:
-            wandb.log(rowd)
-        
-        print(rowd)
-    # 两个任务的平均指标
-    rowd = OrderedDict([(f"auc",np.mean(aucs)),  (f"recall",np.mean(recs)),\
-                        (f"precision",np.mean(precs)),(f"fscore",np.mean(f1s)), (f"accuracy", acc)])
-    rowd = OrderedDict([ (f'{data_split}_'+_k,_v) for _k, _v in rowd.items()]+[('epoch',epoch)])
-    if args.wandb:
-        wandb.log(rowd)
-    print(rowd)
     if args.loss in ['ce']:
         loss_cls_meter = loss_cls_meter.avg
     else:
         loss_cls_meter = loss_cls_meter.sum
-    if test_mode:
-        return aucs, acc, recs, precs, f1s, loss_cls_meter
-    else:
-        # val mode detect early stopping
-        # early stop
-        if early_stopping is not None:
-            early_stopping(epoch,np.mean(recs),model)
-            stop = early_stopping.early_stop
-        else:
-            stop = False
-        return stop, aucs, acc, recs, precs, f1s, loss_cls_meter
+    return roc_auc, accuracies, recalls, precisions, fscores, loss_cls_meter
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='MIL Training Script')
 
     # Dataset 
-    parser.add_argument('--datasets', default='gc_mtl', type=str, help='[camelyon16, tcga, ngc, gc, fnac, gc_mtl, gc_fine]')
-    parser.add_argument('--dataset_root', default='/home1/wsi/gc-all-features/frozen/gigapath-longnet', type=str, help='Dataset root path')
-    parser.add_argument('--label_path', default='../datatools/gc-2000/onetask_labels', type=str, help='label of train dataset')
-    parser.add_argument('--imbalance_sampler', default=0, type=float, help='if use imbalance_sampler')
+    parser.add_argument('--datasets', default='gc_v15', type=str, help='[ngc, gc_2625, gc_v15, gc_10k, gc_fine]')
+    parser.add_argument('--dataset_root', default='/data/wsi/TCTGC50k-features/gigapath-coarse', type=str, help='Dataset root path')
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix random seed of dataloader')
     parser.add_argument('--fix_train_random', action='store_true', help='Fix random seed of Training')
-    parser.add_argument('--val_ratio', default=0., type=float, help='Val-set ratio')
-    parser.add_argument('--fold_start', default=0, type=int, help='Start validation fold [0]')
-    parser.add_argument('--cv_fold', default=1, type=int, help='Number of cross validation fold [3]')
     parser.add_argument('--persistence', action='store_true', help='Load data into memory') 
-    parser.add_argument('--same_psize', default=0, type=int, help='Keep the same size of all patches [0]')
+    parser.add_argument('--num_classes', default=9, type=int, help='Number of classes 9')
+    
+    # Augment
+    parser.add_argument('--patch_drop', default=1, type=float, help='if use patch_drop')
+    
+    # Dataset aug    
+    parser.add_argument('--imbalance_sampler', default=0, type=float, help='if use imbalance_sampler')
     parser.add_argument('--fine_concat', default=0, type=int, help='flatten the fine feature')
-    parser.add_argument('--train_val', default=0, type=int, help='use train and val set to train the model')
 
     # Train
-    parser.add_argument('--auto_resume', action='store_true', help='Resume from the auto-saved checkpoint')
-    parser.add_argument('--num_epoch', default=200, type=int, help='Number of total training epochs [200]')
-    parser.add_argument('--early_stopping', action='store_false', help='Early stopping')
-    parser.add_argument('--max_epoch', default=130, type=int, help='Number of max training epochs in the earlystopping [130]')
-    parser.add_argument('--batch_size', default=32, type=int, help='Number of batch size')
+    parser.add_argument('--num_epoch', default=100, type=int, help='Number of total training epochs [200]')
+    parser.add_argument('--batch_size', default=1, type=int, help='Number of batch size')
     
     # Loss
-    parser.add_argument('--loss', default='focal', type=str, help='Classification Loss [ce, bce, softbce, ranking, aploss, focal]')
+    parser.add_argument('--loss', default='bce', type=str, help='Classification Loss [ce, bce, asl, softbce, ranking, aploss, focal]')
+    parser.add_argument('--loss_drop_weight', default=1., type=float)
+    parser.add_argument('--gamma_neg', default=4.0, type=float)
+    parser.add_argument('--gamma_pos', default=1.0, type=float)
+    parser.add_argument('--alpha', default=0.5, type=float)
+    parser.add_argument('--gamma', default=0.25, type=float)
     parser.add_argument('--neg_weight', default=0.0, type=float, help='Weight for positive sample in SoftBCE')
     parser.add_argument('--neg_margin', default=0, type=float, help='if use neg_margin in ranking loss')
     parser.add_argument('--opt', default='adam', type=str, help='Optimizer [adam, adamw]')
@@ -554,72 +341,69 @@ if __name__ == '__main__':
     # Model
     # mil meathod
     parser.add_argument('--mil_method', default='abmil', type=str, help='Model name [abmil, transmil, dsmil, clam, linear, tma]')
+    parser.add_argument('--input_dim', default=1536, type=int, help='The dimention of patch feature')
     parser.add_argument('--act', default='relu', type=str, help='Activation func in the projection head [gelu,relu]')
     parser.add_argument('--dropout', default=0.25, type=float, help='Dropout in the projection head')
     parser.add_argument('--da_act', default='relu', type=str, help='Activation func in the DAttention [gelu,relu]')
-    parser.add_argument('--input_dim', default=768, type=int, help='The dimention of patch feature')
-
-    # Shuffle
-    parser.add_argument('--patch_shuffle', action='store_true', help='2-D group shuffle')
-    parser.add_argument('--group_shuffle', action='store_true', help='Group shuffle')
-    parser.add_argument('--shuffle_group', default=0, type=int, help='Number of the shuffle group')
 
     # Misc
-    parser.add_argument('--project', default='mtl-524', type=str, help='Project name of exp')
-    parser.add_argument('--title', default='test', type=str, help='Title of exp')
+    parser.add_argument('--model_path', type=str, default='./output-model', help='Output path')
+    parser.add_argument('--project', default='gcv15', type=str, help='Project name of exp')
+    parser.add_argument('--title', default='gigapath-abmil-0328', type=str, help='Title of exp')
     parser.add_argument('--log_iter', default=100, type=int, help='Log Frequency')
     parser.add_argument('--amp', action='store_true', help='Automatic Mixed Precision Training')
     parser.add_argument('--wandb', action='store_true', help='Weight&Bias')
     parser.add_argument('--num_workers', default=0, type=int, help='Number of workers in the dataloader')
+    parser.add_argument('--save_epoch', default=25, type=int, help='epoch number to save model')
+    parser.add_argument('--save_logits', default=1, type=int, help='if save logits in eval loop')
     parser.add_argument('--no_log', action='store_true', help='Without log')
-    parser.add_argument('--nonilm', type=float, default=0, help='no nilm')
-    parser.add_argument('--model_path', type=str, default='./output-model', help='Output path')
     parser.add_argument('--task_config', type=str, default='./configs/oh_5.yaml', help='Task config path')
     parser.add_argument('--eval_only', action='store_true', help='Only evaluate')
     parser.add_argument('--keep_psize_collate', type=float, default=0, help='use collate to keep patch size')
-    parser.add_argument('--threshold', default=0.3, type=float, help='threshold for evaluation')
+    parser.add_argument('--threshold', default=0.5, type=float, help='threshold for evaluation')
+    
+    # Ablation for augmentation k-means
+    parser.add_argument('--kmeans-k', default=5, type=int, help='k for k-means')
+    parser.add_argument('--kmeans-ratio', default=0.3, type=float, help='iter for k-means')
+    parser.add_argument('--kmeans-min', default=20, type=int, help='ratio for k-means')
+    
+    parser.add_argument('--pretrain', default=0., type=float)
+    parser.add_argument('--pretrain_model_path', default='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/output-model/gc_10k/gigapath-abmil-bce-drop0-50e/epoch_49_model.pt', type=str)
     
     args = parser.parse_args()
     
-    with open(args.task_config, 'r') as f:
-        task_config = yaml.load(f.read(), Loader=yaml.FullLoader)
-        args.num_task = task_config['num_task']
-        args.num_classes = task_config['num_classes']
-        args.class_labels = task_config['class_labels']
-        # args.label_path = task_config['label_path']
-        f.close()
-    # args.num_task = 3
-    # args.num_classes = [2,2,4]
-    # args.class_labels = [['NILM', 'POS'], ['NILM', 'AGC'], ['NILM', 'T', 'M', 'BV']]
-    
-    if args.train_val:
-        args.train_label_path = os.path.join(args.label_path, 'train_val.csv')
-        args.val_label_path = os.path.join(args.label_path, 'test_label.csv')
-        args.test_label_path = os.path.join(args.label_path, 'test_label.csv')
+    # 通过设置数据集来选择任务和分类的类别数量
+    if args.datasets == 'gc_v15':
+        args.project = 'gcv15'
+        args.train_label_path = '/data/wsi/TCTGC50k-labels/TCTGC50k-v15-train.csv'
+        args.test_label_path = '/data/wsi/TCTGC50k-labels/TCTGC50k-v15-test.csv'
+        args.dataset_root = '/data/wsi/TCTGC50k-features/gigapath-coarse'
+        args.num_classes = 9
+        args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc', 't', 'm', 'bv']
+    elif args.datasets == 'gc_10k':
+        # args.project = 'gc_10k/ablation_kmeans'
+        args.project = 'gc_10k/one-branch'
+        args.train_label_path = '/data/wsi/TCTGC10k-labels/6_labels/TCTGC10k-v15-train.csv'
+        args.test_label_path = '/data/wsi/TCTGC10k-labels/6_labels/TCTGC10k-v15-test.csv'
+        args.dataset_root = '/data/wsi/TCTGC50k-features/gigapath-coarse'
+        # args.dataset_root = '/data/wsi/TCTGC10k-features/gigapath-1000'
+        args.num_classes = 6
+        args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
+        # args.class_labels = ['NILM', 'ASC-US', 'LSIL', 'ASC-H', 'HSIL', 'AGC','BV', 'M', 'T']
     else:
-        args.train_label_path = os.path.join(args.label_path, 'train_label.csv')
-        args.val_label_path = os.path.join(args.label_path, 'val_label.csv')
-        args.test_label_path = os.path.join(args.label_path, 'test_label.csv')
+        assert f'{args.datasets} is not supported'
     
     if not os.path.exists(os.path.join(args.model_path,args.project)):
         os.mkdir(os.path.join(args.model_path,args.project))
     args.model_path = os.path.join(args.model_path,args.project,args.title)
+    args.log_file = os.path.join(args.model_path, 'log.txt')
     if not os.path.exists(args.model_path):
         os.mkdir(args.model_path)
 
     args.fix_loader_random = True
     args.fix_train_random = True
     
-    # wandb注册
-    if args.wandb:
-        wandb.login()
-        if args.auto_resume:
-            ckp = torch.load(os.path.join(args.model_path,'ckp.pt'))
-            wandb.init(project=args.project, name=args.title,config=args,dir=os.path.join(args.model_path),id=ckp['wandb_id'],resume='must')
-        else:
-            wandb.init(project=args.project, name=args.title,config=args,dir=os.path.join(args.model_path))
-        
-    print(args)
+    print_and_log(args, args.log_file)
     localtime = time.asctime(time.localtime(time.time()) )
-    print(localtime)
+    print_and_log(localtime, args.log_file)
     main(args=args)

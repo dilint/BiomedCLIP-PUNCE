@@ -6,18 +6,14 @@ from torch.nn.functional import one_hot
 import numpy as np
 from utils import calc_iou
 
-
 id2labelcode = {
-    0: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    1: [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    2: [0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    3: [0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    4: [0.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0],
-    5: [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
-    6: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-    7: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
-    8: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
-}
+        0: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        1: [0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+        2: [0.0, 1.0, 1.0, 1.0, 0.0, 0.0],
+        3: [0.0, 1.0, 0.0, 1.0, 0.0, 0.0],
+        4: [0.0, 1.0, 1.0, 1.0, 1.0, 0.0],
+        5: [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+    }
 
 class MyBCELossWithLogits(nn.Module):
     def __init__(self, reduction='mean'):
@@ -347,8 +343,8 @@ class BuildClsLoss(nn.Module):
         args = self.args
         criterion = self.criterion
         batch_size = train_logits.shape[0]
-        label_onehot = one_hot(label, num_classes=args.num_classes).float()
-        # label_onehot = torch.tensor([id2labelcode[item] for item in label], device=train_logits.device)
+        # label_onehot = one_hot(label, num_classes=args.num_classes).float()
+        label_onehot = torch.tensor([id2labelcode[item.item()] for item in label], device=train_logits.device)
         if args.loss in ['ce']:
             logit_loss = criterion(train_logits.view(batch_size,-1),label)
         elif args.loss in ['bce', 'softbce', 'ranking', 'focal', 'asl']:

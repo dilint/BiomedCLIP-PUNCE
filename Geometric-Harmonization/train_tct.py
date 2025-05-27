@@ -4,10 +4,12 @@ import os
 import torch
 import torchvision
 import torch.nn.functional as F
-from datasets import ImbalanceCIFAR100
-from models import SimCLR
+from datasets import ImbalanceCIFAR100, C16Dataset
+from models import SimCLR, SimCLR_MIL
 from utils import nt_xent, focal_nt_xent, GHLoss, cifar_weak_aug, cifar_strong_aug, lr_scheduler, lr_scheduler_warm, eval, TwoViewAugDataset_index, AverageMeter, logger, disjoint_summary
+from tct_utils import PatchFeatureAugmenter
 import numpy as np
+import pandas as pd
 import wandb
 from BCL.memoboosted_cifar100 import Memoboosed_Dataset
 from SDCLR.sdclr import SDCLR, Mask
@@ -15,10 +17,10 @@ from SDCLR.sdclr import SDCLR, Mask
 parser = argparse.ArgumentParser(description='PyTorch Training')
 parser.add_argument("--mode", type=str, default="training", help="training | test")
 parser.add_argument("--gpus", type=str, default="0", help="gpu id sequence split by comma")
-parser.add_argument("--batch_size", type=int, default=512, help="batch size")
+parser.add_argument("--batch_size", type=int, default=64, help="batch size")
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
 parser.add_argument('--imb_factor', default=0.01, type=float, help='imbalance factor')
-parser.add_argument("--network", type=str, default="resnet18")
+parser.add_argument("--network", type=str, default="abmil")
 parser.add_argument("--method", type=str, default="simclr")
 parser.add_argument('--lr', type=float, default=0.5, help='learning rate')
 parser.add_argument('--lr_min', type=float, default=1e-6, help='minimum learning rate')
@@ -47,13 +49,13 @@ parser.add_argument('--rand_strength', type=int, default=30, help='maximum stren
 parser.add_argument('--prune_percent', type=float, default=0.9, help="whole prune percentage")
 parser.add_argument('--random_prune_percent', type=float, default=0, help="random prune percentage")
 
-parser.add_argument('--dataset', type=str, default='cifar100')
+parser.add_argument('--dataset', type=str, default='gc_10k')
 parser.add_argument('--seed', default=0, type=int)
-
+parser.add_argument('--title', default='test', type=str)
 
 global args
 args = parser.parse_args()
-
+args.log_folder = os.path.join('output-model', args.title)
 
 def ssl_training():
     # gpus
@@ -70,38 +72,67 @@ def ssl_training():
     log = logger(path=args.log_folder, log_name="log.txt")
 
     # dataset
-    if args.dataset == 'cifar100':
+    if args.dataset == 'tct':
         train_dataset = ImbalanceCIFAR100("dataset/", imb_type=args.imb_type, imb_factor=args.imb_factor,
                                         rand_number=0, train=True, download=True)
         num_classes = 100
 
-    if args.bcl:
+    ################# custome dataset #################
+    id2label = {
+    0: 'nilm',
+    1: 'ascus',
+    2: 'asch',
+    3: 'lsil',
+    4: 'hsil',
+    5: 'agc',
+    6: 't',
+    7: 'm',
+    8: 'bv',}
+    label2id = {v: k for k, v in id2label.items()}
+    if args.dataset == 'gc_10k':
+        args.train_label_path = '/data/wsi/TCTGC10k-labels/9_labels/TCTGC10k-v15-train.csv'
+        args.test_label_path = '/data/wsi/TCTGC10k-labels/9_labels/TCTGC10k-v15-test.csv'
+        args.dataset_root = '/data/wsi/TCTGC10k-features/gigapath-coarse'
+        # args.dataset_root = '/data/wsi/TCTGC10k-features/gigapath-1000'
+        
+        num_classes = args.num_classes = 9
+        args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc', 't', 'm', 'bv']
+        df_train = pd.read_csv(args.train_label_path)
+        train_wsi_names = df_train['wsi_name'].values
+        train_wsi_labels = df_train['wsi_label'].map(label2id).values
+        df_test = pd.read_csv(args.test_label_path)
+        test_wsi_names = df_test['wsi_name'].values
+        test_wsi_labels = df_test['wsi_label'].map(label2id).values
+        train_dataset = C16Dataset(train_wsi_names, train_wsi_labels,root=args.dataset_root)
+        # val_dataset = C16Dataset(test_wsi_names,test_wsi_labels,root=args.dataset_root)
+        # test_dataset = C16Dataset(test_wsi_names,test_wsi_labels,root=args.dataset_root)
+    ################# end #################
+    
+    if args.bcl: # unused
         train_aug_dataset = Memoboosed_Dataset(train_dataset, args)
     else:
-        train_aug, _ = cifar_strong_aug()
+        train_aug = PatchFeatureAugmenter()
         train_aug_dataset = TwoViewAugDataset_index(train_dataset, train_aug)
-        
     train_loader = torch.utils.data.DataLoader(train_aug_dataset, batch_size=args.batch_size,
                                                num_workers=0, shuffle=True, pin_memory=True)
     class_stat = np.array(train_dataset.get_cls_num_list())
     dataset_total_num = np.sum(class_stat)
 
-    eval_train_aug, eval_test_aug = cifar_weak_aug()
-    eval_batch_size = 1000
-    eval_train_dataset = ImbalanceCIFAR100("dataset/", imb_type=args.imb_type, imb_factor=1,
-                                rand_number=0, train=True, download=True, transform=eval_train_aug)
-    eval_test_dataset = torchvision.datasets.CIFAR100("dataset", train=False, download=True, transform=eval_test_aug)
-
+    eval_train_aug, eval_test_aug = PatchFeatureAugmenter(augment_type='none'), PatchFeatureAugmenter(augment_type='none')
+    eval_batch_size = 256
+    eval_train_dataset = C16Dataset(train_wsi_names, train_wsi_labels,root=args.dataset_root, transform=eval_train_aug)
+    eval_test_dataset = C16Dataset(test_wsi_names,test_wsi_labels,root=args.dataset_root, transform=eval_test_aug)
     eval_train_loader = torch.utils.data.DataLoader(eval_train_dataset, batch_size=eval_batch_size,
-                                               num_workers=4, shuffle=False, pin_memory=True)
+                                               num_workers=0, shuffle=False, pin_memory=True)
     eval_test_loader = torch.utils.data.DataLoader(eval_test_dataset, batch_size=eval_batch_size,
-                                              num_workers=4, shuffle=False, pin_memory=True)
+                                              num_workers=0, shuffle=False, pin_memory=True)
 
     # model and loss
     if args.method == "sdclr" or args.method == "sdclr_GH":
         model = SDCLR(num_class=num_classes, network=args.network).to(gpus[0])
     else:
-        model = SimCLR(num_class=num_classes, network=args.network).to(gpus[0])
+        # model = SimCLR(num_class=num_classes, network=args.network).to(gpus[0])
+        model = SimCLR_MIL(num_class=num_classes, mil=args.network).to(gpus[0])
 
     if args.method == "simclr_GH" or args.method == "sdclr_GH" or args.method == "focal_GH":
         GH_loss = GHLoss(0.05, args.sinkhorn_iter)
@@ -292,7 +323,7 @@ def ssl_training():
         if args.bcl:
             train_aug_dataset.update_momentum_weight(momentum_loss, epoch)
 
-        if (epoch + 1) % 20 == 0:
+        if (epoch + 1) % 1 == 0:
             acc, perClassAcc = eval(eval_train_loader, eval_test_loader, model, 500, args=args)
             _, majorAccList, moderateAccList, minorAccList, _, _ = disjoint_summary('Eval', acc[1], perClassAcc, class_stat, dataset='cifar100', returnValue=True)
             log.info(f'Accuracy {acc}, Accuracy major {np.mean(majorAccList)}, Accuracy medium {np.mean(moderateAccList)}, Accuracy minor {np.mean(minorAccList)}')

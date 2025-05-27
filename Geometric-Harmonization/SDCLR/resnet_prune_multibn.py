@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
-from torchvision.models.utils import load_state_dict_from_url
+from torch.hub import load_state_dict_from_url
+
 from utils import NormalizeByChannelMeanStd
 from .resnet_prune import conv1x1, conv3x3, prune_conv2d
 from pdb import set_trace

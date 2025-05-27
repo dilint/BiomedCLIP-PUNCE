@@ -1,6 +1,6 @@
 import numpy as np
 from sklearn.metrics import precision_recall_fscore_support
-from sklearn.metrics import f1_score,recall_score, roc_curve
+from sklearn.metrics import f1_score,recall_score, roc_curve, precision_recall_curve
 from sklearn.metrics import accuracy_score, precision_score, roc_auc_score
 from torchmetrics.classification import BinarySpecificity, BinaryRecall
 from prettytable import PrettyTable
@@ -79,12 +79,6 @@ def group_shuffle(x,group=0):
     return x[:,idx.long()]
 
 
-def optimal_thresh(fpr, tpr, thresholds, p=0):
-    loss = (fpr - tpr) - p * tpr / (fpr + tpr + 1)
-    idx = np.argmin(loss, axis=0)
-    return fpr[idx], tpr[idx], thresholds[idx]
-
-
 def make_weights_for_balanced_classes_split(dataset):
     N = float(len(dataset))
     labels = np.array(dataset.slide_label)
@@ -97,41 +91,46 @@ def make_weights_for_balanced_classes_split(dataset):
 
     return torch.DoubleTensor(weight)
 
-def five_scores(bag_labels, bag_predictions):
-    fpr, tpr, threshold = roc_curve(bag_labels, bag_predictions, pos_label=1)
-    fpr_optimal, tpr_optimal, threshold_optimal = optimal_thresh(fpr, tpr, threshold)
-    # threshold_optimal=0.5
-    try:
-        auc_value = roc_auc_score(bag_labels, bag_predictions)
-    except Exception as e:
-        print(e)
-        auc_value = 0
-    this_class_label = np.array(bag_predictions)
-    this_class_label[this_class_label>=threshold_optimal] = 1
-    this_class_label[this_class_label<threshold_optimal] = 0
-    bag_predictions = this_class_label
-    precision, recall, fscore, _ = precision_recall_fscore_support(bag_labels, bag_predictions, average='binary')
-    accuracy = accuracy_score(bag_labels, bag_predictions)
-    # accuracy = 1- np.count_nonzero(np.array(bag_labels).astype(int)- bag_predictions.astype(int)) / len(bag_labels)
-    return accuracy, auc_value, precision, recall, fscore
+# def five_scores(bag_labels, bag_predictions):
+#     fpr, tpr, threshold = roc_curve(bag_labels, bag_predictions, pos_label=1)
+#     fpr_optimal, tpr_optimal, threshold_optimal = optimal_thresh(fpr, tpr, threshold)
+#     # threshold_optimal=0.5
+#     try:
+#         auc_value = roc_auc_score(bag_labels, bag_predictions)
+#     except Exception as e:
+#         print(e)
+#         auc_value = 0
+#     this_class_label = np.array(bag_predictions)
+#     this_class_label[this_class_label>=threshold_optimal] = 1
+#     this_class_label[this_class_label<threshold_optimal] = 0
+#     bag_predictions = this_class_label
+#     precision, recall, fscore, _ = precision_recall_fscore_support(bag_labels, bag_predictions, average='binary')
+#     accuracy = accuracy_score(bag_labels, bag_predictions)
+#     # accuracy = 1- np.count_nonzero(np.array(bag_labels).astype(int)- bag_predictions.astype(int)) / len(bag_labels)
+#     return accuracy, auc_value, precision, recall, fscore
 
 
-def six_scores(bag_labels, bag_predictions, thres):
-    fpr, tpr, threshold = roc_curve(bag_labels, bag_predictions, pos_label=1)
-    fpr_optimal, tpr_optimal, threshold_optimal = optimal_thresh(fpr, tpr, threshold)
-    if thres != 0:
-        threshold_optimal = thres
-    auc_value = roc_auc_score(bag_labels, bag_predictions)
-    this_class_label = np.array(bag_predictions)
-    this_class_label[this_class_label>=threshold_optimal] = 1
-    this_class_label[this_class_label<threshold_optimal] = 0
-    bag_predictions = this_class_label
-    precision, recall, fscore, _ = precision_recall_fscore_support(bag_labels, bag_predictions, average='binary')
-    accuracy = accuracy_score(bag_labels, bag_predictions)
-    specificity_metric = BinarySpecificity()
-    specificity = specificity_metric(torch.tensor(bag_predictions), torch.tensor(bag_labels))
-    # accuracy = 1- np.count_nonzero(np.array(bag_labels).astype(int)- bag_predictions.astype(int)) / len(bag_labels)
-    return accuracy, auc_value, precision, recall, specificity, fscore
+# def six_scores(bag_labels, bag_predictions, thres):
+#     fpr, tpr, threshold = roc_curve(bag_labels, bag_predictions, pos_label=1)
+#     fpr_optimal, tpr_optimal, threshold_optimal = optimal_thresh(fpr, tpr, threshold)
+#     if thres != 0:
+#         threshold_optimal = thres
+#     auc_value = roc_auc_score(bag_labels, bag_predictions)
+#     this_class_label = np.array(bag_predictions)
+#     this_class_label[this_class_label>=threshold_optimal] = 1
+#     this_class_label[this_class_label<threshold_optimal] = 0
+#     bag_predictions = this_class_label
+#     precision, recall, fscore, _ = precision_recall_fscore_support(bag_labels, bag_predictions, average='binary')
+#     accuracy = accuracy_score(bag_labels, bag_predictions)
+#     specificity_metric = BinarySpecificity()
+#     specificity = specificity_metric(torch.tensor(bag_predictions), torch.tensor(bag_labels))
+#     # accuracy = 1- np.count_nonzero(np.array(bag_labels).astype(int)- bag_predictions.astype(int)) / len(bag_labels)
+#     return accuracy, auc_value, precision, recall, specificity, fscore
+
+def optimal_thresh(fpr, tpr, thresholds, p=0):
+    loss = (fpr - tpr) - p * tpr / (fpr + tpr + 1)
+    idx = np.argmin(loss, axis=0)
+    return fpr[idx], tpr[idx], loss[idx], thresholds[idx]
 
 def multi_class_scores_mtl(gt_logtis, pred_logits, class_labels, wsi_names, threshold):
     """
@@ -159,7 +158,7 @@ def multi_class_scores_mtl(gt_logtis, pred_logits, class_labels, wsi_names, thre
         5: [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
     }
     
-    assert len(class_labels) == 5 or len(class_labels) == 10 or len(class_labels) == 9
+    assert len(class_labels) == 6 or len(class_labels) == 5 or len(class_labels) == 9
     bag_labels = []
     new_pred_logits = []
     
@@ -188,15 +187,26 @@ def multi_class_scores_mtl(gt_logtis, pred_logits, class_labels, wsi_names, thre
         bag_labels_cancer, bag_logits_cancer, class_labels_cancer = bag_labels, bag_logits, class_labels
  
     roc_auc = []
+    thresholds = []
     # 首先评估宫颈癌症风险
     n_cancer_class = len(class_labels_cancer)
     n_cancer_sample = bag_labels_cancer.shape[0]
-    # bag_labels_cancer_onehot = np.eye(n_cancer_class)[bag_labels_cancer]
-    bag_labels_cancer_onehot = np.array([id2labelcode[l] for l in bag_labels_cancer])
+    bag_labels_cancer_onehot = np.eye(n_cancer_class)[bag_labels_cancer]
+    # bag_labels_cancer_onehot = np.array([id2labelcode[l] for l in bag_labels_cancer])
     bag_pred_cancer_onehot = np.zeros_like(bag_logits_cancer)
     for i in range(1, n_cancer_class):
+        # 计算auc和threshold
+        fpr, tpr, threshold_ = roc_curve(bag_labels_cancer_onehot[:, i], bag_logits_cancer[:, i], pos_label=1)
+        precision_pr, recall_pr, thresholds_pr = precision_recall_curve(bag_labels_cancer_onehot[:, i], bag_logits_cancer[:, i])
+        f1_scores_pr = 2 * (precision_pr * recall_pr) / (precision_pr + recall_pr + 1e-10)
+        best_idx = np.argmax(f1_scores_pr)
+        threshold_optimal = thresholds_pr[best_idx]
+        best_f1 = f1_scores_pr[best_idx]
+        # fpr_optimal, tpr_optimal, socre, threshold_optimal = optimal_thresh(fpr, tpr, threshold_)
+        print(i, best_idx, best_f1, threshold_optimal)
+        thresholds.append(threshold_optimal)
         roc_auc.append(roc_auc_score(bag_labels_cancer_onehot[:, i], bag_logits_cancer[:, i]))
-        bag_pred_cancer_onehot[:, i] = bag_logits_cancer[:, i] >= threshold
+        bag_pred_cancer_onehot[:, i] = bag_logits_cancer[:, i] >= threshold_optimal
     # print(bag_pred_cancer_onehot.shape)
     for j in range(bag_pred_cancer_onehot.shape[0]):
         if np.sum(bag_pred_cancer_onehot[j]) == 0:
@@ -207,8 +217,8 @@ def multi_class_scores_mtl(gt_logtis, pred_logits, class_labels, wsi_names, thre
             # bag_pred_cancer_onehot[j, np.argmax(bag_logits_cancer[j, 1:])+1] = 1
             # 多个类别都大于阈值，则保留评级类别高的
             rank=[0,2,1,3,4]
+            indices = np.where(bag_pred_cancer_onehot[j, 1:] == 1)[0]
             bag_pred_cancer_onehot[j] = 0
-            indices = np.where(bag_logits_cancer[j, 1:] == 1)[0]
             if len(indices) > 0:
                 # 根据 rank 值选择优先级最高的索引
                 selected_index = max(indices, key=lambda x: rank[x])
@@ -217,9 +227,9 @@ def multi_class_scores_mtl(gt_logtis, pred_logits, class_labels, wsi_names, thre
             # 如果该类别被判定为NILM的概率过高 也输出错误信息
             if bag_logits_cancer[j, 0] > 0.95:
                 print(f'[ERROR] {wsi_names[j]} risk prediction is wrong: {[round(risk, 4) for risk in bag_logits_cancer[j]]}')
-    
     bag_pred_cancer = np.argmax(bag_pred_cancer_onehot, axis=-1) # [N_cancer,]
     accuracy = accuracy_score(bag_labels_cancer, bag_pred_cancer)
+    accuracys = [accuracy]
     recalls = recall_score(bag_labels_cancer, bag_pred_cancer, average=None, labels=list(range(1,n_cancer_class)))
     precisions = precision_score(bag_labels_cancer, bag_pred_cancer, average=None, labels=list(range(1,n_cancer_class)))
     fscores = f1_score(bag_labels_cancer, bag_pred_cancer, average=None, labels=list(range(1,n_cancer_class)))
@@ -236,8 +246,11 @@ def multi_class_scores_mtl(gt_logtis, pred_logits, class_labels, wsi_names, thre
         bag_labels_microbial_onehot = np.eye(n_microbial_class)[bag_labels_microbial]
         bag_pred_microbial_onehot = np.zeros_like(bag_logtis_microbial)
         for i in range(n_microbial_class):
+            fpr, tpr, threshold_ = roc_curve(bag_labels_microbial_onehot[:, i], bag_logtis_microbial[:, i], pos_label=1)
+            fpr_optimal, tpr_optimal, score, threshold_optimal = optimal_thresh(fpr, tpr, threshold_)
+            thresholds.append(threshold_optimal)
             roc_auc.append(roc_auc_score(bag_labels_microbial_onehot[:, i], bag_logtis_microbial[:, i]))
-            bag_pred_microbial_onehot[:, i] = bag_logtis_microbial[:, i] >= threshold
+            bag_pred_microbial_onehot[:, i] = bag_logtis_microbial[:, i] >= threshold_optimal
         for j in range(bag_pred_microbial_onehot.shape[0]):
             if np.sum(bag_pred_microbial_onehot[j]) == 0:
                 bag_pred_microbial_onehot[j, 0] = 1
@@ -256,11 +269,11 @@ def multi_class_scores_mtl(gt_logtis, pred_logits, class_labels, wsi_names, thre
         microbial_matrix = confusion_matrix(bag_labels_microbial, bag_pred_microbial, class_labels_microbial)
         accuracy_2 = accuracy_score(bag_labels_microbial, bag_pred_microbial)
         accuracy_all = (accuracy * n_cancer_sample + accuracy_2 * n_microbial_sample) / (n_cancer_sample + n_microbial_sample)
-        accuracys = [accuracy, accuracy_2, accuracy_all]
+        accuracys.extend([accuracy_2, accuracy_all])  
     print('Recalls: ' + str(recalls))
     print('roc', 'acc', 'recall', 'prec', 'fs')
     print(roc_auc, accuracys, recalls, precisions, fscores)
-    return roc_auc, accuracys, recalls, precisions, fscores, cancer_matrix, microbial_matrix
+    return roc_auc, accuracys, recalls, precisions, fscores, thresholds, cancer_matrix, microbial_matrix
     # return roc_auc_macro, accuracy, recall, precision, fscore
     
     
@@ -325,7 +338,7 @@ def prettytable_to_dataframe(pt):
 import pandas as pd
 import numpy as np
 
-def save_metrics_to_excel(roc_auc, accuracies, recalls, precisions, fscores, confusion_matrix_cancer_pt, confusion_matrix_microbial_pt, class_labels, output_excel_path):
+def save_metrics_to_excel(roc_auc, accuracies, recalls, precisions, fscores, thresholds, confusion_matrix_cancer_pt, confusion_matrix_microbial_pt, class_labels, output_excel_path):
     """
     将每个类别的AUC、召回率、精确率、F1分数，以及宫颈癌类别和微生物感染类别的平均指标存储到Excel表格中。
     所有指标以百分比形式显示，并保留两位小数。同时保存混淆矩阵（PrettyTable 格式）。
@@ -347,14 +360,17 @@ def save_metrics_to_excel(roc_auc, accuracies, recalls, precisions, fscores, con
     precisions = [round(precision * 100, 2) for precision in precisions]
     fscores = [round(fscore * 100, 2) for fscore in fscores]
     accuracies = [round(acc * 100, 2) for acc in accuracies]
-
+    thresholds = [round(threshold, 2) for threshold in thresholds]
+    
     # 创建一个DataFrame存储每个类别的指标
     results = {
         "Class": class_labels[1:],
         "AUC (%)": roc_auc,
         "Recall (%)": recalls,
         "Precision (%)": precisions,
-        "F1 Score (%)": fscores
+        "F1 Score (%)": fscores,
+        "Accuracy (%)": ['-']*len(roc_auc),
+        "Threshold": thresholds,
     }
     df = pd.DataFrame(results)
 
@@ -365,19 +381,22 @@ def save_metrics_to_excel(roc_auc, accuracies, recalls, precisions, fscores, con
     cancer_avg_fscore = round(np.mean(fscores[:5]), 2)
     cancer_accuracy = accuracies[0]  # 宫颈癌类别的准确率
 
-    microbial_avg_auc = round(np.mean(roc_auc[5:]), 2)  # 后面几个类别为微生物感染
-    microbial_avg_recall = round(np.mean(recalls[5:]), 2)
-    microbial_avg_precision = round(np.mean(precisions[5:]), 2)
-    microbial_avg_fscore = round(np.mean(fscores[5:]), 2)
-    microbial_accuracy = accuracies[1]  # 微生物感染类别的准确率
-
-    # 计算所有类别的平均指标
-    all_avg_auc = round(np.mean(roc_auc), 2)
-    all_avg_recall = round(np.mean(recalls), 2)
-    all_avg_precision = round(np.mean(precisions), 2)
-    all_avg_fscore = round(np.mean(fscores), 2)
-    all_accuracy = accuracies[2]  # 所有类别的准确率
-
+    if len(class_labels) == 9:
+        microbial_avg_auc = round(np.mean(roc_auc[5:]), 2)  # 后面几个类别为微生物感染
+        microbial_avg_recall = round(np.mean(recalls[5:]), 2)
+        microbial_avg_precision = round(np.mean(precisions[5:]), 2)
+        microbial_avg_fscore = round(np.mean(fscores[5:]), 2)
+        microbial_accuracy = accuracies[1]  # 微生物感染类别的准确率
+        # 计算所有类别的平均指标
+        all_avg_auc = round(np.mean(roc_auc), 2)
+        all_avg_recall = round(np.mean(recalls), 2)
+        all_avg_precision = round(np.mean(precisions), 2)
+        all_avg_fscore = round(np.mean(fscores), 2)
+        all_accuracy = accuracies[2]  # 所有类别的准确率
+    else:
+        microbial_avg_auc = microbial_avg_recall = microbial_avg_precision = microbial_avg_fscore = microbial_accuracy = '-'
+        all_avg_auc = all_avg_recall = all_avg_precision = all_avg_fscore = all_accuracy = '-'
+    
     # 将平均指标添加到DataFrame中
     df_avg = pd.DataFrame({
         "Class": ["Cervical Cancer Average", "Microbial Infection Average", "All Classes Average"],
@@ -393,13 +412,15 @@ def save_metrics_to_excel(roc_auc, accuracies, recalls, precisions, fscores, con
 
     # 将 PrettyTable 转换为 DataFrame
     confusion_matrix_cancer_df = prettytable_to_dataframe(confusion_matrix_cancer_pt)
-    confusion_matrix_microbial_df = prettytable_to_dataframe(confusion_matrix_microbial_pt)
+    if confusion_matrix_microbial_pt:
+        confusion_matrix_microbial_df = prettytable_to_dataframe(confusion_matrix_microbial_pt)
 
     # 将混淆矩阵保存到Excel的不同Sheet中
     with pd.ExcelWriter(output_excel_path) as writer:
         df_final.to_excel(writer, sheet_name="Metrics", index=False)
         confusion_matrix_cancer_df.to_excel(writer, sheet_name="Confusion Matrix (Cancer)", index=False)
-        confusion_matrix_microbial_df.to_excel(writer, sheet_name="Confusion Matrix (Microbial)", index=False)
+        if confusion_matrix_microbial_pt:
+            confusion_matrix_microbial_df.to_excel(writer, sheet_name="Confusion Matrix (Microbial)", index=False)
 
     print(f"Metrics and confusion matrices saved to {output_excel_path}")
         

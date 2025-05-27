@@ -1,5 +1,7 @@
 import torchvision
+import torch
 import numpy as np
+import os
 
 
 class ImbalanceCIFAR10(torchvision.datasets.CIFAR10):
@@ -121,3 +123,64 @@ class ImbalanceCIFAR100(torchvision.datasets.CIFAR100):
         for i in range(self.cls_num):
             cls_num_list.append(self.num_per_cls_dict[i])
         return cls_num_list
+    
+
+
+class C16Dataset(torch.utils.data.Dataset):
+
+    def __init__(self, file_name, file_label, root, num_classes=9, persistence=False, transform=None):
+        """
+        参数
+            file_name: WSI pt文件名列表
+            file_label: WSI标签列表
+            root: WSI pt文件根目录
+            persistence: 是否将所有pt文件在init()中加载到内存中
+            keep_same_psize: 是否保持每个样本的patch数量一致
+            is_train: 是否为训练集
+        """
+        super(C16Dataset, self).__init__()
+        self.file_name = file_name
+        self.slide_label = file_label
+        self.slide_label = [int(_l) for _l in self.slide_label]
+        self.size = len(self.file_name)
+        self.root = root
+        self.persistence = persistence
+        self.num_classes = num_classes
+        self.transform = transform
+        if persistence:
+            self.feats = [ torch.load(os.path.join(root,'pt', _f+'.pt')) for _f in file_name ]
+
+    def __len__(self):
+        return self.size
+    
+    
+    def __getitem__(self, idx):
+        """
+        Args
+        :param idx: the index of item
+        :return: image and its label
+        """
+        if self.persistence:
+            features = self.feats[idx]
+        else:
+            if "pt" in os.listdir(self.root):
+                dir_path = os.path.join(self.root,"pt")
+            else:
+                dir_path = self.root
+            file_path = os.path.join(dir_path, self.file_name[idx]+'.pt')
+            features = torch.load(file_path, map_location='cpu', weights_only=False)
+        mask = torch.ones(len(features))
+        label = int(self.slide_label[idx])
+        if self.transform:
+            features = self.transform(features)
+        return features, label
+    
+    def get_cls_num_list(self):
+       count_dict = {}
+       for label in self.slide_label:
+           if label in count_dict:
+               count_dict[label] += 1
+           else:
+               count_dict[label] = 1
+       cls_num_list = [count_dict[i] for i in range(self.num_classes)]
+       return cls_num_list

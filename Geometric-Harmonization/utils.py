@@ -496,7 +496,7 @@ def eval_sgd(x_train, y_train, x_test, y_test, topk=[1, 5], epoch=500, batch_siz
 def eval_sgd_per_class(x_train, y_train, x_test, y_test, topk=[1, 5], epoch=500, batch_size=1000):
     
     num_class = y_train.max().item() + 1
-
+    
     perClassAccRight = [0 for _ in range(num_class)]
     perClassAccWhole = [0 for _ in range(num_class)]
     perClassAcc = [0 for _ in range(num_class)]
