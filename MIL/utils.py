@@ -191,8 +191,8 @@ def multi_class_scores_mtl(gt_logtis, pred_logits, class_labels, wsi_names, thre
     # 首先评估宫颈癌症风险
     n_cancer_class = len(class_labels_cancer)
     n_cancer_sample = bag_labels_cancer.shape[0]
-    bag_labels_cancer_onehot = np.eye(n_cancer_class)[bag_labels_cancer]
-    # bag_labels_cancer_onehot = np.array([id2labelcode[l] for l in bag_labels_cancer])
+    # bag_labels_cancer_onehot = np.eye(n_cancer_class)[bag_labels_cancer]
+    bag_labels_cancer_onehot = np.array([id2labelcode[l] for l in bag_labels_cancer])
     bag_pred_cancer_onehot = np.zeros_like(bag_logits_cancer)
     for i in range(1, n_cancer_class):
         # 计算auc和threshold

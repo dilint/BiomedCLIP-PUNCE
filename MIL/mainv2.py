@@ -189,6 +189,7 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,cls_criterion,sch
         if i < 10:
             print_and_log(list(map(lambda x: os.path.basename(x), file_path)))
             print_and_log(bag1.shape)
+            print_and_log(bag2.shape)
             
         with amp_autocast():
             train_logits1 = model(bag1) # [B, sum_num_classes]
@@ -265,7 +266,7 @@ def val_loop(args,model,loader,device,criterion):
             label_onehot = one_hot(label.view(batch_size,-1),num_classes=args.num_classes).squeeze(1).float()
             wsi_name = [os.path.basename(wsi_path) for wsi_path in data[2]]
             
-            test_logits = model(pad_augmenter(bag))
+            test_logits = model(bag)
             batch_size = bag.size(0)
             bag_labels.extend(data[1])
             bag_onehot_labels.extend(label_onehot)

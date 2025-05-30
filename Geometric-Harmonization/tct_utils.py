@@ -51,12 +51,11 @@ class PatchFeatureAugmenter:
             return self._pad_features(patch_features)
 
         # GPU加速的K-Means
-        patch_features_cp = cp.asarray(patch_features)
-        # patch_features_cp = patch_features
-        kmeans = KMeans(n_clusters=self.kmeans_k, random_state=42)
-        cluster_labels = kmeans.fit_predict(patch_features_cp)
-        cluster_labels = torch.as_tensor(cluster_labels, device=device)
-
+        # patch_features_cp = cp.asarray(patch_features)
+        # kmeans = KMeans(n_clusters=self.kmeans_k, random_state=42)
+        # cluster_labels = kmeans.fit_predict(patch_features_cp)
+        # cluster_labels = torch.as_tensor(cluster_labels, device=device)
+        
         # 按类处理
         new_features = []
         for cluster_id in range(self.kmeans_k):
@@ -93,3 +92,5 @@ class PatchFeatureAugmenter:
             padded = torch.zeros((self.target_pad_size, dims), device=features.device)
             padded[:N] = features
         return padded
+    
+    

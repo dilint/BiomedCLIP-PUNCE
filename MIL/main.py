@@ -40,19 +40,29 @@ def main(args):
             
     if 'gc' in args.datasets.lower() :
         df_train = pd.read_csv(args.train_label_path)
+        df_cluster = pd.read_csv(args.train_cluster_path)
+        # 合并到训练集 DataFrame，确保 wsi_name 对齐
+        df_train = df_train.merge(
+            df_cluster[['wsi_name', 'cluster_label']], 
+            on='wsi_name', 
+            how='left'  # 保留所有训练集样本，缺失的聚类标签设为 NaN
+        )
         train_wsi_names = df_train['wsi_name'].values
         train_wsi_labels = df_train['wsi_label'].map(label2id).values
         df_test = pd.read_csv(args.test_label_path)
         test_wsi_names = df_test['wsi_name'].values
         test_wsi_labels = df_test['wsi_label'].map(label2id).values
+        train_cluster_labels = df_train['cluster_label'].apply(
+            lambda x: [int(i) for i in x.split()]).values
+
     acs, pre, rec, fs, auc, te_auc, te_fs=[],[],[],[],[],[],[]
     ckc_metric = [acs, pre, rec, fs, auc, te_auc, te_fs] # acs: [fold, fold] fold: [task1, task2]
 
     if not args.no_log:
         print_and_log('Dataset: ' + args.datasets, args.log_file)
-    one_fold(args, ckc_metric, train_wsi_names, train_wsi_labels, test_wsi_names, test_wsi_labels)
+    one_fold(args, ckc_metric, train_wsi_names, train_wsi_labels, test_wsi_names, test_wsi_labels, train_cluster_labels)
 
-def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
+def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l, train_c):
     # --->initiation
     if args.keep_psize_collate:
         collate_fn = collate_fn_wsi
@@ -68,9 +78,9 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l):
         drop_augmenter = PatchFeatureAugmenter(kmeans_k=args.kmeans_k, kmeans_ratio=args.kmeans_ratio, kmeans_min=args.kmeans_min)
         
         if args.patch_drop:
-            train_set = C16Dataset(train_p,train_l,root=args.dataset_root,persistence=args.persistence,transform=drop_augmenter)
+            train_set = C16Dataset(train_p,train_l,root=args.dataset_root,cluster_labels=train_c,persistence=args.persistence,transform=drop_augmenter)
         else:
-            train_set = C16Dataset(train_p,train_l,root=args.dataset_root,persistence=args.persistence,transform=pad_augmenter)
+            train_set = C16Dataset(train_p,train_l,root=args.dataset_root,cluster_labels=train_c,persistence=args.persistence,transform=pad_augmenter)
         test_set = C16Dataset(test_p,test_l,root=args.dataset_root,persistence=args.persistence,transform=pad_augmenter)
     else:
         assert f'{args.datasets} dataset not found'
@@ -259,7 +269,7 @@ def val_loop(args,model,loader,device,criterion):
             label_onehot = one_hot(label.view(batch_size,-1),num_classes=args.num_classes).squeeze(1).float()
             wsi_name = [os.path.basename(wsi_path) for wsi_path in data[2]]
             
-            test_logits = model(pad_augmenter(bag))
+            test_logits = model(bag)
             batch_size = bag.size(0)
             bag_labels.extend(data[1])
             bag_onehot_labels.extend(label_onehot)
@@ -386,6 +396,7 @@ if __name__ == '__main__':
         args.train_label_path = '/data/wsi/TCTGC10k-labels/6_labels/TCTGC10k-v15-train.csv'
         args.test_label_path = '/data/wsi/TCTGC10k-labels/6_labels/TCTGC10k-v15-test.csv'
         args.dataset_root = '/data/wsi/TCTGC50k-features/gigapath-coarse'
+        args.train_cluster_path = f'../datatools/TCTGC10k/cluster/kmeans_{args.kmeans_k}.csv'
         # args.dataset_root = '/data/wsi/TCTGC10k-features/gigapath-1000'
         args.num_classes = 6
         args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']

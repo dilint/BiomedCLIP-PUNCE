@@ -159,7 +159,7 @@ import math
 
 class C16Dataset(Dataset):
 
-    def __init__(self, file_name,file_label,root,persistence=False,transform=None):
+    def __init__(self, file_name,file_label,root,cluster_labels=None,persistence=False,transform=None):
         """
         参数
             file_name: WSI pt文件名列表
@@ -177,7 +177,7 @@ class C16Dataset(Dataset):
         self.root = root
         self.persistence = persistence
         self.transform = transform
-        
+        self.cluster_labels = cluster_labels
         if persistence:
             self.feats = [ torch.load(os.path.join(root,'pt', _f+'.pt')) for _f in file_name ]
 
@@ -200,8 +200,11 @@ class C16Dataset(Dataset):
             file_path = os.path.join(dir_path, self.file_name[idx]+'.pt')
             features = torch.load(file_path, map_location='cpu', weights_only=False)
         label = int(self.slide_label[idx])
+        cluster_labels = None
+        if self.cluster_labels is not None:
+            cluster_labels = self.cluster_labels[idx]
         if self.transform:
-            features = self.transform(features)
+            features = self.transform(features, cluster_labels)
         return features, label, file_path
 
 
