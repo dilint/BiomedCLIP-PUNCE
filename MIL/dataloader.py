@@ -218,7 +218,8 @@ class TwoViewAugDataset_index(Dataset):
 
     def __getitem__(self, index):
         feature, label, file_path = self.dataset[index]
-        return self.transform1(feature), self.transform2(feature), label, file_path, index
+        cluster_labels = self.dataset.cluster_labels[index]
+        return self.transform1(feature, cluster_labels), self.transform2(feature, cluster_labels), label, file_path, index
 
     def __len__(self):
         return len(self.dataset)

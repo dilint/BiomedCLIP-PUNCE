@@ -15,8 +15,8 @@ lr=$(echo "0.002 * $batch_size" | bc)
 
 epoch=200
 
-python main.py --batch_size ${batch_size} --lr ${lr} --num_epoch ${epoch} --datasets gc_10k \
-    --patch_drop ${patch_drop}\
+python mainv2.py --batch_size ${batch_size} --lr ${lr} --num_epoch ${epoch} --datasets gc_10k \
+    --patch_drop ${patch_drop} --warmup_epoch ${warmup}\
     --mil_method ${mil_method} \
-    --title gigapath-${mil_method}-b${batch_size}-bce-drop${patch_drop}-epoch${epoch}-warmup${warmup}-mlabel1 \
+    --title gigapath-${mil_method}-b${batch_size}-bce-epoch${epoch}-warmup${warmup} \
     # --title debug \
