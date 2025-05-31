@@ -183,6 +183,8 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,cls_criterion,sch
     last_end = start = time.time()
     train_loss_log = 0.
     losses = {}
+    loss_cls_meters = {}
+    
     model.train()
     if not args.no_log:
         n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -226,13 +228,18 @@ def train_loop(args,model,loader,optimizer,device,amp_autocast,cls_criterion,sch
             optimizer.step()
             if args.lr_supi and scheduler is not None:
                 scheduler.step()
-
+        
+        for k, v in losses.items():
+            if k not in loss_cls_meters:
+                loss_cls_meters[k] = AverageMeter()
+            loss_cls_meters[k].update(v, 1)
+            
         if i % args.log_iter == 0 or i == len(loader)-1:
             lrl = [param_group['lr'] for param_group in optimizer.param_groups]
             lr = sum(lrl) / len(lrl)
             if not args.no_log:
                 print_and_log('[{}/{}] '.format(i, len(loader)-1)
-                + ', '.join(['{}: {:.4f}'.format(k, v) for k, v in losses.items()])
+                + ', '.join(['{}: {:.4f}'.format(k, v.avg) for k, v in loss_cls_meters.items()])
                 + ', lr: {:.5f}'.format(lr), args.log_file)
 
         train_loss_log = train_loss_log + train_loss.item()
@@ -392,7 +399,7 @@ if __name__ == '__main__':
         args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc', 't', 'm', 'bv']
     elif args.datasets == 'gc_10k':
         # args.project = 'gc_10k/ablation_kmeans'
-        args.project = 'gc_10k/one-branch'
+        # args.project = 'gc_10k/one-branch'
         args.train_label_path = '/data/wsi/TCTGC10k-labels/6_labels/TCTGC10k-v15-train.csv'
         args.test_label_path = '/data/wsi/TCTGC10k-labels/6_labels/TCTGC10k-v15-test.csv'
         args.dataset_root = '/data/wsi/TCTGC50k-features/gigapath-coarse'
