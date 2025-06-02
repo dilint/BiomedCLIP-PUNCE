@@ -29,13 +29,13 @@ class PatchFeatureAugmenter:
         self.random_drop_ratio = random_drop_ratio
         self.target_pad_size = target_pad_size
 
-    def __call__(self, patch_features):
+    def __call__(self, patch_features, cluster_labels):
         """ 输入: [N, D] 输出: [target_pad_size, D] """
         if self.augment_type == 'none':
             return self._pad_features(patch_features)
         
         elif self.augment_type == 'kmeans':
-            return self._kmeans_augment(patch_features)
+            return self._kmeans_augment(patch_features, cluster_labels)
         
         elif self.augment_type == 'random':
             return self._random_drop(patch_features)
@@ -43,7 +43,7 @@ class PatchFeatureAugmenter:
         else:
             raise ValueError(f"Unknown augment_type: {self.augment_type}")
 
-    def _kmeans_augment(self, patch_features):
+    def _kmeans_augment(self, patch_features, cluster_labels):
         """ K-Means聚类增强 """
         device = patch_features.device
         psize, dims = patch_features.shape
@@ -52,10 +52,12 @@ class PatchFeatureAugmenter:
 
         # GPU加速的K-Means
         # patch_features_cp = cp.asarray(patch_features)
+        # # patch_features_cp = patch_features
         # kmeans = KMeans(n_clusters=self.kmeans_k, random_state=42)
         # cluster_labels = kmeans.fit_predict(patch_features_cp)
-        # cluster_labels = torch.as_tensor(cluster_labels, device=device)
         
+        cluster_labels = torch.as_tensor(cluster_labels, device=device)
+
         # 按类处理
         new_features = []
         for cluster_id in range(self.kmeans_k):
@@ -94,3 +96,17 @@ class PatchFeatureAugmenter:
         return padded
     
     
+class TwoViewAugDataset_index(torch.utils.data.Dataset):
+    r"""Returns two augmentation of each image and the image label."""
+
+    def __init__(self, dataset, transform):
+        self.dataset = dataset
+        self.transform = transform
+
+    def __getitem__(self, index):
+        feature, label = self.dataset[index]
+        cluster_labels = self.dataset.cluster_labels[index]
+        return self.transform(feature, cluster_labels), self.transform(feature, cluster_labels), label, index
+
+    def __len__(self):
+        return len(self.dataset)

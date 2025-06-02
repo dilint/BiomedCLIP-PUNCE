@@ -128,7 +128,7 @@ class ImbalanceCIFAR100(torchvision.datasets.CIFAR100):
 
 class C16Dataset(torch.utils.data.Dataset):
 
-    def __init__(self, file_name, file_label, root, num_classes=9, persistence=False, transform=None):
+    def __init__(self, file_name, file_label, root, num_classes=9, cluster_labels=None, persistence=False, transform=None):
         """
         参数
             file_name: WSI pt文件名列表
@@ -147,6 +147,7 @@ class C16Dataset(torch.utils.data.Dataset):
         self.persistence = persistence
         self.num_classes = num_classes
         self.transform = transform
+        self.cluster_labels = cluster_labels
         if persistence:
             self.feats = [ torch.load(os.path.join(root,'pt', _f+'.pt')) for _f in file_name ]
 
@@ -171,8 +172,12 @@ class C16Dataset(torch.utils.data.Dataset):
             features = torch.load(file_path, map_location='cpu', weights_only=False)
         mask = torch.ones(len(features))
         label = int(self.slide_label[idx])
+        if self.cluster_labels is not None:
+            cluster_labels = self.cluster_labels[idx]
+        else:
+            cluster_labels = None
         if self.transform:
-            features = self.transform(features)
+            features = self.transform(features, cluster_labels)
         return features, label
     
     def get_cls_num_list(self):

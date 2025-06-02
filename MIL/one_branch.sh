@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -x
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=2
 
 # K=4 # 4 8 16 32
 # ratio=0.1
@@ -9,7 +9,7 @@ export CUDA_VISIBLE_DEVICES=1
 mil_method=abmil # transmil abmil wsi_vit
 patch_drop=1
 weight=1.
-batch_size=2
+batch_size=1
 warmup=200
 lr=$(echo "0.002 * $batch_size" | bc)
 

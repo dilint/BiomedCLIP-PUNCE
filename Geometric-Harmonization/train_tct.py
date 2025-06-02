@@ -6,8 +6,8 @@ import torchvision
 import torch.nn.functional as F
 from datasets import ImbalanceCIFAR100, C16Dataset
 from models import SimCLR, SimCLR_MIL
-from utils import nt_xent, focal_nt_xent, GHLoss, cifar_weak_aug, cifar_strong_aug, lr_scheduler, lr_scheduler_warm, eval, TwoViewAugDataset_index, AverageMeter, logger, disjoint_summary
-from tct_utils import PatchFeatureAugmenter
+from utils import nt_xent, focal_nt_xent, GHLoss, cifar_weak_aug, cifar_strong_aug, lr_scheduler, lr_scheduler_warm, eval, AverageMeter, logger, disjoint_summary
+from tct_utils import PatchFeatureAugmenter, TwoViewAugDataset_index
 import numpy as np
 import pandas as pd
 import wandb
@@ -17,7 +17,7 @@ from SDCLR.sdclr import SDCLR, Mask
 parser = argparse.ArgumentParser(description='PyTorch Training')
 parser.add_argument("--mode", type=str, default="training", help="training | test")
 parser.add_argument("--gpus", type=str, default="0", help="gpu id sequence split by comma")
-parser.add_argument("--batch_size", type=int, default=64, help="batch size")
+parser.add_argument("--batch_size", type=int, default=256, help="batch size")
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
 parser.add_argument('--imb_factor', default=0.01, type=float, help='imbalance factor')
 parser.add_argument("--network", type=str, default="abmil")
@@ -50,6 +50,7 @@ parser.add_argument('--prune_percent', type=float, default=0.9, help="whole prun
 parser.add_argument('--random_prune_percent', type=float, default=0, help="random prune percentage")
 
 parser.add_argument('--dataset', type=str, default='gc_10k')
+parser.add_argument('--kmeans_k', type=int, default=5)
 parser.add_argument('--seed', default=0, type=int)
 parser.add_argument('--title', default='test', type=str)
 
@@ -90,20 +91,31 @@ def ssl_training():
     8: 'bv',}
     label2id = {v: k for k, v in id2label.items()}
     if args.dataset == 'gc_10k':
-        args.train_label_path = '/data/wsi/TCTGC10k-labels/9_labels/TCTGC10k-v15-train.csv'
-        args.test_label_path = '/data/wsi/TCTGC10k-labels/9_labels/TCTGC10k-v15-test.csv'
-        args.dataset_root = '/data/wsi/TCTGC10k-features/gigapath-coarse'
+        args.project = 'gc_10k/warmup-rankloss'
+        args.train_label_path = '/data/wsi/TCTGC10k-labels/6_labels/TCTGC10k-v15-train.csv'
+        args.test_label_path = '/data/wsi/TCTGC10k-labels/6_labels/TCTGC10k-v15-test.csv'
+        args.train_cluster_path = f'../datatools/TCTGC10k/cluster/kmeans_{args.kmeans_k}.csv'
+        args.dataset_root = '/data/wsi/TCTGC50k-features/gigapath-coarse'
         # args.dataset_root = '/data/wsi/TCTGC10k-features/gigapath-1000'
-        
-        num_classes = args.num_classes = 9
-        args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc', 't', 'm', 'bv']
+        num_classes = 6
+        args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
         df_train = pd.read_csv(args.train_label_path)
+        df_cluster = pd.read_csv(args.train_cluster_path)
+        # 合并到训练集 DataFrame，确保 wsi_name 对齐
+        df_train = df_train.merge(
+            df_cluster[['wsi_name', 'cluster_label']], 
+            on='wsi_name', 
+            how='left'  # 保留所有训练集样本，缺失的聚类标签设为 NaN
+        )
         train_wsi_names = df_train['wsi_name'].values
         train_wsi_labels = df_train['wsi_label'].map(label2id).values
         df_test = pd.read_csv(args.test_label_path)
         test_wsi_names = df_test['wsi_name'].values
         test_wsi_labels = df_test['wsi_label'].map(label2id).values
-        train_dataset = C16Dataset(train_wsi_names, train_wsi_labels,root=args.dataset_root)
+        train_cluster_labels = df_train['cluster_label'].apply(
+            lambda x: [int(i) for i in x.split()]).values
+        train_dataset = C16Dataset(train_wsi_names, train_wsi_labels, root=args.dataset_root, num_classes=num_classes, cluster_labels=train_cluster_labels)
+        
         # val_dataset = C16Dataset(test_wsi_names,test_wsi_labels,root=args.dataset_root)
         # test_dataset = C16Dataset(test_wsi_names,test_wsi_labels,root=args.dataset_root)
     ################# end #################

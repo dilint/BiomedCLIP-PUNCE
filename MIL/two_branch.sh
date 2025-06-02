@@ -10,7 +10,7 @@ mil_method=abmil # transmil abmil wsi_vit
 patch_drop=1
 weight=1.
 batch_size=1
-warmup=50
+warmup=150
 lr=$(echo "0.002 * $batch_size" | bc)
 
 epoch=200
