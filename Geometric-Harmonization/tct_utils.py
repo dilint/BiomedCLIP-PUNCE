@@ -1,8 +1,5 @@
 import torch
 import torch.nn as nn
-import cupy as cp
-from cuml.cluster import KMeans
-
 
 class PatchFeatureAugmenter:
     def __init__(self, 
@@ -45,39 +42,28 @@ class PatchFeatureAugmenter:
 
     def _kmeans_augment(self, patch_features, cluster_labels):
         """ K-Means聚类增强 """
-        device = patch_features.device
-        psize, dims = patch_features.shape
         if self.kmeans_k == 0:
             return self._pad_features(patch_features)
 
-        # GPU加速的K-Means
-        # patch_features_cp = cp.asarray(patch_features)
-        # # patch_features_cp = patch_features
-        # kmeans = KMeans(n_clusters=self.kmeans_k, random_state=42)
-        # cluster_labels = kmeans.fit_predict(patch_features_cp)
-        
-        cluster_labels = torch.as_tensor(cluster_labels, device=device)
+        # 向量化替代循环
+        masks = [cluster_labels == i for i in range(self.kmeans_k)]
+        keep_counts = [
+            max(self.kmeans_min, int(m.sum() * (1 - self.kmeans_ratio)))
+            for m in masks
+        ]
 
-        # 按类处理
-        new_features = []
-        for cluster_id in range(self.kmeans_k):
-            cluster_mask = (cluster_labels == cluster_id)
-            cluster_patches = patch_features[cluster_mask]
-            
-            N_keep = max(
-                self.kmeans_min, 
-                int(cluster_patches.size(0) * (1 - self.kmeans_ratio))
-            )
-            
-            if N_keep < cluster_patches.size(0):
-                keep_idx = torch.randperm(cluster_patches.size(0), device=device)[:N_keep]
-                cluster_patches = cluster_patches[keep_idx]
-            
-            new_features.append(cluster_patches)
+        # 并行化处理每个聚类
+        kept_patches = []
+        for mask, keep_num in zip(masks, keep_counts):
+            cluster_patches = patch_features[mask]
+            if keep_num < cluster_patches.size(0):
+                idx = torch.randperm(cluster_patches.size(0), device=patch_features.device)[:keep_num]
+                cluster_patches = cluster_patches[idx]
+            kept_patches.append(cluster_patches)
 
-        new_features = torch.cat(new_features, dim=0)
+        new_features = torch.cat(kept_patches, dim=0)
         return self._pad_features(new_features)
-
+    
     def _random_drop(self, patch_features):
         """ 随机丢弃增强 """
         N = patch_features.size(0)
@@ -89,10 +75,14 @@ class PatchFeatureAugmenter:
         """ 填充到目标尺寸 """
         N, dims = features.shape
         if N >= self.target_pad_size:
-            padded = features[:self.target_pad_size]
-        else:
-            padded = torch.zeros((self.target_pad_size, dims), device=features.device)
-            padded[:N] = features
+            return features[:self.target_pad_size]
+        
+        # 预分配内存并直接填充
+        padded = torch.empty((self.target_pad_size, dims), 
+                           device=features.device, 
+                           dtype=features.dtype)
+        padded[:N] = features
+        padded[N:] = 0  # 显式填充0
         return padded
     
     
@@ -106,7 +96,8 @@ class TwoViewAugDataset_index(torch.utils.data.Dataset):
     def __getitem__(self, index):
         feature, label = self.dataset[index]
         cluster_labels = self.dataset.cluster_labels[index]
-        return self.transform(feature, cluster_labels), self.transform(feature, cluster_labels), label, index
+        device = cluster_labels.device
+        return self.transform(feature.to(device), cluster_labels), self.transform(feature.to(device), cluster_labels), label, index
 
     def __len__(self):
         return len(self.dataset)

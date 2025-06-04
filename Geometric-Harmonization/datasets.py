@@ -177,7 +177,7 @@ class C16Dataset(torch.utils.data.Dataset):
         else:
             cluster_labels = None
         if self.transform:
-            features = self.transform(features, cluster_labels)
+            features = self.transform(features.to(cluster_labels.device), cluster_labels)
         return features, label
     
     def get_cls_num_list(self):

@@ -3,8 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import Parameter
 import numpy as np
-from resnet import ResNet18, ResNet34
-from resnet_imagenet import resnet50
+# from resnet import ResNet18, ResNet34
+# from resnet_imagenet import resnet50
 from modules.abmil import *
 from modules.transmil import *
 
@@ -50,50 +50,50 @@ class proj_head(nn.Module):
         return x
 
 
-class SimCLR(nn.Module):
-    def __init__(self, num_class=100, network='resnet18'):
-        super(SimCLR, self).__init__()
-        self.backbone = self.get_backbone(network)(num_class, use_norm=False)
-        self.backbone.in_planes = self.backbone.fc.weight.shape[1]
-        self.backbone.fc = nn.Identity()
+# class SimCLR(nn.Module):
+#     def __init__(self, num_class=100, network='resnet18'):
+#         super(SimCLR, self).__init__()
+#         self.backbone = self.get_backbone(network)(num_class, use_norm=False)
+#         self.backbone.in_planes = self.backbone.fc.weight.shape[1]
+#         self.backbone.fc = nn.Identity()
 
-        self.projector = proj_head(self.backbone.in_planes, False, 128)
+#         self.projector = proj_head(self.backbone.in_planes, False, 128)
   
-        self.encoder = nn.Sequential(
-            self.backbone,
-            self.projector
-        )
+#         self.encoder = nn.Sequential(
+#             self.backbone,
+#             self.projector
+#         )
 
-    @staticmethod
-    def get_backbone(backbone_name):
-        return {'resnet18': ResNet18,
-                'resnet34': ResNet34,}[backbone_name]
+#     @staticmethod
+#     def get_backbone(backbone_name):
+#         return {'resnet18': ResNet18,
+#                 'resnet34': ResNet34,}[backbone_name]
 
-    def forward(self, x1, x2):
-        z1 = self.encoder(x1)
-        z2 = self.encoder(x2)
+#     def forward(self, x1, x2):
+#         z1 = self.encoder(x1)
+#         z2 = self.encoder(x2)
 
-        return {'z1': z1, 'z2': z2}
+#         return {'z1': z1, 'z2': z2}
 
-class SimCLR_imagenet(nn.Module):
-    def __init__(self, num_class=100):
-        super(SimCLR_imagenet, self).__init__()
-        self.backbone = resnet50(pretrained=False, imagenet=True, num_classes=num_class)
-        self.backbone.in_planes = self.backbone.fc.weight.shape[1]
-        self.backbone.fc = nn.Identity()
+# class SimCLR_imagenet(nn.Module):
+#     def __init__(self, num_class=100):
+#         super(SimCLR_imagenet, self).__init__()
+#         self.backbone = resnet50(pretrained=False, imagenet=True, num_classes=num_class)
+#         self.backbone.in_planes = self.backbone.fc.weight.shape[1]
+#         self.backbone.fc = nn.Identity()
 
-        self.projector = proj_head(self.backbone.in_planes, False, 128)
+#         self.projector = proj_head(self.backbone.in_planes, False, 128)
 
-        self.encoder = nn.Sequential(
-            self.backbone,
-            self.projector
-        )
+#         self.encoder = nn.Sequential(
+#             self.backbone,
+#             self.projector
+#         )
 
-    def forward(self, x1, x2):
-        z1 = self.encoder(x1)
-        z2 = self.encoder(x2)
+#     def forward(self, x1, x2):
+#         z1 = self.encoder(x1)
+#         z2 = self.encoder(x2)
 
-        return {'z1': z1, 'z2': z2}
+#         return {'z1': z1, 'z2': z2}
     
     
 
