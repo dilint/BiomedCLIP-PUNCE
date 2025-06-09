@@ -70,6 +70,8 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l, train_c):
         collate_fn = default_collate
     amp_autocast = torch.cuda.amp.autocast if args.amp else suppress
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+    train_c = [torch.tensor(labels).to('cuda') for labels in train_c]
+    
     acs,pre,rec,fs,auc,te_auc,te_fs = ckc_metric
 
     # ***--->load data
@@ -81,7 +83,7 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l, train_c):
             train_set = C16Dataset(train_p,train_l,root=args.dataset_root,cluster_labels=train_c,persistence=args.persistence,transform=drop_augmenter)
         else:
             train_set = C16Dataset(train_p,train_l,root=args.dataset_root,cluster_labels=train_c,persistence=args.persistence,transform=pad_augmenter)
-        test_set = C16Dataset(test_p,test_l,root=args.dataset_root,persistence=args.persistence,transform=pad_augmenter)
+        test_set = C16Dataset(test_p,test_l,root=args.dataset_root,cluster_labels=train_c,persistence=args.persistence,transform=pad_augmenter)
     else:
         assert f'{args.datasets} dataset not found'
         
@@ -107,8 +109,16 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l, train_c):
             dropout=args.dropout).to(device)
 
     if args.pretrain:
-        state_dict = torch.load(args.pretrain_model_path, map_location='cpu', weights_only=False)['model']
+        state_dict = torch.load(args.pretrain_model_path, map_location='cpu', weights_only=False)
+        del state_dict['predictor.weight']
+        del state_dict['predictor.bias']
         print(model.load_state_dict(state_dict, strict=False))
+        
+    if args.frozen:
+        for name, param in model.named_parameters():
+            if "predictor" not in name:  # 根据层名称匹配
+                param.requires_grad_(False)
+    
     # ***--->construct criterion
     cls_criterion = BuildClsLoss(args)
 
@@ -291,7 +301,6 @@ def val_loop(args,model,loader,device,criterion):
                     bag_logits.extend(torch.softmax(test_logits, dim=-1).cpu().numpy())
             # TODO have not updated            
             elif args.loss in ['bce', 'softbce', 'ranking', 'asl', 'focal', 'aploss']:
-                
                 if args.num_classes == 2:
                     bag_logits.extend(torch.sigmoid(test_logits)[:,1].cpu().numpy())
                 else:
@@ -300,7 +309,10 @@ def val_loop(args,model,loader,device,criterion):
     
     class_labels = args.class_labels
     bag_onehot_labels = [label.cpu() for label in bag_onehot_labels]
-    roc_auc, accuracies, recalls, precisions, fscores, thresholds, cancer_matrix, microbial_matrix = multi_class_scores_mtl(bag_onehot_labels, bag_logits, class_labels, wsi_names, threshold=args.threshold)
+    if args.loss in ['ce']:
+        roc_auc, accuracies, recalls, precisions, fscores, thresholds, cancer_matrix, microbial_matrix = multi_class_scores_mtl_ce(bag_labels, bag_logits, class_labels, wsi_names, threshold=args.threshold)
+    else:
+        roc_auc, accuracies, recalls, precisions, fscores, thresholds, cancer_matrix, microbial_matrix = multi_class_scores_mtl(bag_onehot_labels, bag_logits, class_labels, wsi_names, threshold=args.threshold)
     output_excel_path = os.path.join(args.model_path, 'metrics.xlsx')
     save_metrics_to_excel(roc_auc, accuracies, recalls, precisions, fscores, thresholds, cancer_matrix, microbial_matrix, class_labels, output_excel_path)
     if args.save_logits:
@@ -385,6 +397,7 @@ if __name__ == '__main__':
     parser.add_argument('--kmeans-min', default=20, type=int, help='ratio for k-means')
     
     parser.add_argument('--pretrain', default=0., type=float)
+    parser.add_argument('--frozen', default=0., type=float, help='if frozen the mil network and train linear layer only')
     parser.add_argument('--pretrain_model_path', default='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/output-model/gc_10k/gigapath-abmil-bce-drop0-50e/epoch_49_model.pt', type=str)
     
     args = parser.parse_args()

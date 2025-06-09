@@ -9,8 +9,8 @@ def simplex_equiangular_tight_frame(k, d):
     M = np.sqrt(k / (k - 1)) * (np.eye(k) - np.ones(k) / k) @ U  
     return M
 
-k = 100
-d = 512
+k = 20
+d = 128
 
 M = simplex_equiangular_tight_frame(k, d)
 np.save('{}_{}_target.npy'.format(k, d),M)

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -x
-export CUDA_VISIBLE_DEVICES=2
+export CUDA_VISIBLE_DEVICES=0
 
 # K=4 # 4 8 16 32
 # ratio=0.1
@@ -12,12 +12,17 @@ weight=1.
 batch_size=1
 warmup=200
 lr=$(echo "0.002 * $batch_size" | bc)
-
 epoch=200
+frozen=0
+pretrain_model_name='ssl_abmil_b1000_4*128_d10'
 
 python main.py --batch_size ${batch_size} --lr ${lr} --num_epoch ${epoch} --datasets gc_10k \
     --patch_drop ${patch_drop} \
     --mil_method ${mil_method} \
-    --project 'gc_10k/one-branch' \
-    --title gigapath-${mil_method}-b${batch_size}-bce-epoch${epoch} \
+    --project 'gc_10k/one-branch-valid' \
+    --title gigapath-${mil_method}-b${batch_size}-ce-epoch${epoch} \
+
+
+    # --frozen ${frozen} --pretrain 1 --pretrain_model_path "../Geometric-Harmonization/output-model/${pretrain_model_name}/ssl_abmil_1000.pth"\
+    # --title gigapath-${mil_method}-b${batch_size}-bce-epoch${epoch}-frozen${frozen}-${pretrain_model_name} \
     # --title debug \

@@ -17,3 +17,4 @@ wsi_cell_num.txt
 *labels/
 log.txt
 cluster
+*.npy

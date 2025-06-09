@@ -203,8 +203,10 @@ class C16Dataset(Dataset):
         cluster_labels = None
         if self.cluster_labels is not None:
             cluster_labels = self.cluster_labels[idx]
+        else:
+            cluster_labels = None
         if self.transform:
-            features = self.transform(features, cluster_labels)
+            features = self.transform(features.to(cluster_labels.device), cluster_labels)
         return features, label, file_path
 
 

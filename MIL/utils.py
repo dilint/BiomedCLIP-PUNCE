@@ -91,42 +91,6 @@ def make_weights_for_balanced_classes_split(dataset):
 
     return torch.DoubleTensor(weight)
 
-# def five_scores(bag_labels, bag_predictions):
-#     fpr, tpr, threshold = roc_curve(bag_labels, bag_predictions, pos_label=1)
-#     fpr_optimal, tpr_optimal, threshold_optimal = optimal_thresh(fpr, tpr, threshold)
-#     # threshold_optimal=0.5
-#     try:
-#         auc_value = roc_auc_score(bag_labels, bag_predictions)
-#     except Exception as e:
-#         print(e)
-#         auc_value = 0
-#     this_class_label = np.array(bag_predictions)
-#     this_class_label[this_class_label>=threshold_optimal] = 1
-#     this_class_label[this_class_label<threshold_optimal] = 0
-#     bag_predictions = this_class_label
-#     precision, recall, fscore, _ = precision_recall_fscore_support(bag_labels, bag_predictions, average='binary')
-#     accuracy = accuracy_score(bag_labels, bag_predictions)
-#     # accuracy = 1- np.count_nonzero(np.array(bag_labels).astype(int)- bag_predictions.astype(int)) / len(bag_labels)
-#     return accuracy, auc_value, precision, recall, fscore
-
-
-# def six_scores(bag_labels, bag_predictions, thres):
-#     fpr, tpr, threshold = roc_curve(bag_labels, bag_predictions, pos_label=1)
-#     fpr_optimal, tpr_optimal, threshold_optimal = optimal_thresh(fpr, tpr, threshold)
-#     if thres != 0:
-#         threshold_optimal = thres
-#     auc_value = roc_auc_score(bag_labels, bag_predictions)
-#     this_class_label = np.array(bag_predictions)
-#     this_class_label[this_class_label>=threshold_optimal] = 1
-#     this_class_label[this_class_label<threshold_optimal] = 0
-#     bag_predictions = this_class_label
-#     precision, recall, fscore, _ = precision_recall_fscore_support(bag_labels, bag_predictions, average='binary')
-#     accuracy = accuracy_score(bag_labels, bag_predictions)
-#     specificity_metric = BinarySpecificity()
-#     specificity = specificity_metric(torch.tensor(bag_predictions), torch.tensor(bag_labels))
-#     # accuracy = 1- np.count_nonzero(np.array(bag_labels).astype(int)- bag_predictions.astype(int)) / len(bag_labels)
-#     return accuracy, auc_value, precision, recall, specificity, fscore
-
 def optimal_thresh(fpr, tpr, thresholds, p=0):
     loss = (fpr - tpr) - p * tpr / (fpr + tpr + 1)
     idx = np.argmin(loss, axis=0)
@@ -276,7 +240,48 @@ def multi_class_scores_mtl(gt_logtis, pred_logits, class_labels, wsi_names, thre
     return roc_auc, accuracys, recalls, precisions, fscores, thresholds, cancer_matrix, microbial_matrix
     # return roc_auc_macro, accuracy, recall, precision, fscore
     
-    
+
+def multi_class_scores_mtl_ce(bag_labels, pred_logits, class_labels, wsi_names, threshold):
+    """
+    参数：
+        bag_labels (list): [N], 真实标签
+        pred_logits (tensor): [N, num_class], 每个样本的类别概率
+        class_labels (list): ['NILM', 'ASC-US', 'LSIL', 'ASC-H', 'HSIL', 'AGC', 'BV', 'M', 'T'],  类别标签, 
+        wsi_names (list): N, WSI名称,方便打印错误信息
+    返回：
+        roc_auc_macro (ndarray): 多类别ROC_AUC
+        accuracy (float): Micro 准确率
+        recall (ndarray): Macro 阳性召回率 len = 8 or 4 
+        precision (ndarray): Macro 阳性精确率
+        fscore (ndarray): Macro F1分数
+    TODO 目前对于多类别任务，只考虑了1,5,3的多分类划分方式以及5分类的单任务模式
+    """
+    # 对于多类别样本 拆分成多个样本，预测概率将正确的其他类别概率设为0
+
+    assert len(class_labels) == 6 or len(class_labels) == 5 or len(class_labels) == 9
+    bag_labels = []
+            
+    bag_labels = np.array(bag_labels)
+    bag_logits = np.array(pred_logits)
+    pred_labels = torch.argmax(bag_logits, dim=1)
+    roc_auc, thresholds = [], []
+    n_cancer_class = pred_logits.shape[1]
+    for i in range(1, n_cancer_class):
+        roc_auc.append(0)
+        thresholds.append(0)
+    # bag_pred_cancer = np.argmax(bag_pred_cancer_onehot, axis=-1) # [N_cancer,]
+    accuracy = accuracy_score(bag_labels, bag_logits)
+    accuracys = [accuracy]
+    recalls = recall_score(bag_labels, pred_labels, average=None, labels=list(range(1,n_cancer_class)))
+    precisions = precision_score(bag_labels, pred_labels, average=None, labels=list(range(1,n_cancer_class)))
+    fscores = f1_score(bag_labels, pred_labels, average=None, labels=list(range(1,n_cancer_class)))
+    print('[INFO] confusion matrix for cancer labels:')
+    cancer_matrix = confusion_matrix(bag_labels, bag_logits, class_labels)
+    print('fscores len' + str(len(fscores)))
+    # 评估微生物感染
+    microbial_matrix = None
+    return roc_auc, accuracys, recalls, precisions, fscores, thresholds, cancer_matrix, microbial_matrix
+
 def confusion_matrix(bag_labels, bag_pred, class_labels):
     """
     混淆矩阵生成：

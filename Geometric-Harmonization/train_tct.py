@@ -366,7 +366,7 @@ if __name__ == "__main__":
     parser.add_argument('--lr_min_stage1', type=float, default=0.3)
     parser.add_argument('--lr_max_stage2', type=float, default=0.3)
     parser.add_argument("--GH_warm_up", type=int, default=10, help="warm up epoch for target initialization")
-    parser.add_argument("--target_dim", type=int, default=100, help="target dimension")
+    parser.add_argument("--target_dim", type=int, default=20, help="target dimension")
     parser.add_argument('--sinkhorn_iter', default=300, type=int, help='sinkhorn iterations')
     parser.add_argument('--beta', default=0.999, type=float, help='beta')
 
@@ -382,7 +382,7 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', type=str, default='gc_10k')
     parser.add_argument('--kmeans_k', type=int, default=5)
     parser.add_argument('--seed', default=0, type=int)
-    parser.add_argument('--title', default='test', type=str)
+    parser.add_argument('--title', default='ssl_abmil_b1000_4*128_d10', type=str)
 
     # global args
     args = parser.parse_args()
