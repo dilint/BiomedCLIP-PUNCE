@@ -404,12 +404,13 @@ if __name__ == '__main__':
     
     # 通过设置数据集来选择任务和分类的类别数量
     if args.datasets == 'gc_v15':
-        args.project = 'gcv15'
-        args.train_label_path = '/data/wsi/TCTGC50k-labels/TCTGC50k-v15-train.csv'
-        args.test_label_path = '/data/wsi/TCTGC50k-labels/TCTGC50k-v15-test.csv'
+        # args.project = 'gcv15'
+        args.train_label_path = '/data/wsi/TCTGC50k-labels/6_labels/TCTGC50k-v15-train.csv'
+        args.test_label_path = '/data/wsi/TCTGC50k-labels/6_labels/TCTGC50k-v15-test.csv'
         args.dataset_root = '/data/wsi/TCTGC50k-features/gigapath-coarse'
-        args.num_classes = 9
-        args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc', 't', 'm', 'bv']
+        args.num_classes = 6
+        args.train_cluster_path = f'../datatools/TCTGC50k/cluster/kmeans_{args.kmeans_k}.csv'
+        args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
     elif args.datasets == 'gc_10k':
         # args.project = 'gc_10k/ablation_kmeans'
         # args.project = 'gc_10k/one-branch'
