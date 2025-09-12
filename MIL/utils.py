@@ -259,24 +259,24 @@ def multi_class_scores_mtl_ce(bag_labels, pred_logits, class_labels, wsi_names, 
     # 对于多类别样本 拆分成多个样本，预测概率将正确的其他类别概率设为0
 
     assert len(class_labels) == 6 or len(class_labels) == 5 or len(class_labels) == 9
-    bag_labels = []
-            
     bag_labels = np.array(bag_labels)
     bag_logits = np.array(pred_logits)
-    pred_labels = torch.argmax(bag_logits, dim=1)
+    pred_labels = np.argmax(bag_logits, axis=1)
+    n_cancer_class = bag_logits.shape[1]
+    print(bag_labels.shape)
+    print(bag_logits.shape)
     roc_auc, thresholds = [], []
-    n_cancer_class = pred_logits.shape[1]
     for i in range(1, n_cancer_class):
         roc_auc.append(0)
         thresholds.append(0)
     # bag_pred_cancer = np.argmax(bag_pred_cancer_onehot, axis=-1) # [N_cancer,]
-    accuracy = accuracy_score(bag_labels, bag_logits)
+    accuracy = accuracy_score(bag_labels, pred_labels)
     accuracys = [accuracy]
     recalls = recall_score(bag_labels, pred_labels, average=None, labels=list(range(1,n_cancer_class)))
     precisions = precision_score(bag_labels, pred_labels, average=None, labels=list(range(1,n_cancer_class)))
     fscores = f1_score(bag_labels, pred_labels, average=None, labels=list(range(1,n_cancer_class)))
     print('[INFO] confusion matrix for cancer labels:')
-    cancer_matrix = confusion_matrix(bag_labels, bag_logits, class_labels)
+    cancer_matrix = confusion_matrix(bag_labels, pred_labels, class_labels)
     print('fscores len' + str(len(fscores)))
     # 评估微生物感染
     microbial_matrix = None

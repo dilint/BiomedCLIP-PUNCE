@@ -79,11 +79,15 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l, train_c):
         pad_augmenter = PatchFeatureAugmenter(augment_type='none')
         drop_augmenter = PatchFeatureAugmenter(kmeans_k=args.kmeans_k, kmeans_ratio=args.kmeans_ratio, kmeans_min=args.kmeans_min)
         
+        train_transform = test_transform = None
         if args.patch_drop:
-            train_set = C16Dataset(train_p,train_l,root=args.dataset_root,cluster_labels=train_c,persistence=args.persistence,transform=drop_augmenter)
-        else:
-            train_set = C16Dataset(train_p,train_l,root=args.dataset_root,cluster_labels=train_c,persistence=args.persistence,transform=pad_augmenter)
-        test_set = C16Dataset(test_p,test_l,root=args.dataset_root,cluster_labels=train_c,persistence=args.persistence,transform=pad_augmenter)
+            train_transform = drop_augmenter
+        elif args.patch_pad:
+            train_transform = pad_augmenter
+        if args.patch_pad:
+            test_transform = pad_augmenter
+        train_set = C16Dataset(train_p,train_l,root=args.dataset_root,cluster_labels=train_c,persistence=args.persistence,transform=train_transform)
+        test_set = C16Dataset(test_p,test_l,root=args.dataset_root,cluster_labels=train_c,persistence=args.persistence,transform=test_transform)
     else:
         assert f'{args.datasets} dataset not found'
         
@@ -339,6 +343,7 @@ if __name__ == '__main__':
     
     # Augment
     parser.add_argument('--patch_drop', default=1, type=float, help='if use patch_drop')
+    parser.add_argument('--patch_pad', default=1, type=float, help='if use patch_padding')
     
     # Dataset aug    
     parser.add_argument('--imbalance_sampler', default=0, type=float, help='if use imbalance_sampler')
@@ -376,7 +381,7 @@ if __name__ == '__main__':
     parser.add_argument('--da_act', default='relu', type=str, help='Activation func in the DAttention [gelu,relu]')
 
     # Misc
-    parser.add_argument('--model_path', type=str, default='./output-model', help='Output path')
+    parser.add_argument('--output_path', type=str, default='./output-model', help='Output path')
     parser.add_argument('--project', default='gcv15', type=str, help='Project name of exp')
     parser.add_argument('--title', default='gigapath-abmil-0328', type=str, help='Title of exp')
     parser.add_argument('--log_iter', default=100, type=int, help='Log Frequency')
@@ -425,9 +430,9 @@ if __name__ == '__main__':
     else:
         assert f'{args.datasets} is not supported'
     
-    if not os.path.exists(os.path.join(args.model_path,args.project)):
-        os.mkdir(os.path.join(args.model_path,args.project))
-    args.model_path = os.path.join(args.model_path,args.project,args.title)
+    if not os.path.exists(os.path.join(args.output_path,args.project)):
+        os.mkdir(os.path.join(args.output_path,args.project))
+    args.model_path = os.path.join(args.output_path,args.project,args.title)
     args.log_file = os.path.join(args.model_path, 'log.txt')
     if not os.path.exists(args.model_path):
         os.mkdir(args.model_path)
