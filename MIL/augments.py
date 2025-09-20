@@ -181,12 +181,11 @@ class PatchFeatureAugmenter:
         else:
             raise ValueError(f"Unknown augment_type: {self.augment_type}")
 
-    def _kmeans_augment(self, patch_features, cluster_labels):
+    def _kmeans_augment_v0(self, patch_features, cluster_labels):
         """ K-Means聚类增强 """
         if self.kmeans_k == 0:
             return self._pad_features(patch_features)
 
-        # 向量化替代循环
         masks = [cluster_labels == i for i in range(self.kmeans_k)]
         keep_counts = [
             max(self.kmeans_min, int(m.sum() * (1 - self.kmeans_ratio)))
@@ -204,6 +203,38 @@ class PatchFeatureAugmenter:
 
         new_features = torch.cat(kept_patches, dim=0)
         return self._pad_features(new_features)
+    
+    # TODO 保留patch的顺序不会被改变 非紧凑型 效果待测试    
+    def _kmeans_augment(self, patch_features, cluster_labels):
+        """ K-Means聚类增强 - 保留原始位置顺序 """
+        if self.kmeans_k == 0:
+            return self._pad_features(patch_features)
+        
+        # 如果特征数量超过目标大小，先截断
+        if patch_features.shape[0] >= self.target_pad_size:
+            patch_features = patch_features[:self.target_pad_size]
+            cluster_labels = cluster_labels[:self.target_pad_size]
+        
+        # 创建要丢弃的索引掩码
+        discard_mask = torch.zeros(patch_features.shape[0], dtype=torch.bool, device=patch_features.device)
+        
+        # 为每个聚类计算要丢弃的数量
+        for i in range(self.kmeans_k):
+            cluster_mask = (cluster_labels == i)
+            cluster_indices = torch.where(cluster_mask)[0]
+            cluster_size = len(cluster_indices)
+                
+            # 计算要丢弃的数量 kmeans_min为每类最少保留数
+            discard_num = min(cluster_size - self.kmeans_min, int(cluster_size * self.kmeans_ratio))
+            
+            if discard_num > 0:
+                # 随机选择要丢弃的索引
+                discard_idx = torch.randperm(cluster_size, device=patch_features.device)[:discard_num]
+                discard_indices = cluster_indices[discard_idx]
+                discard_mask[discard_indices] = True
+        
+        patch_features[discard_mask] = 0.0  # 用零覆盖丢弃的patch
+        return self._pad_features(patch_features)
     
     def _random_drop(self, patch_features):
         """ 随机丢弃增强 """
@@ -225,4 +256,3 @@ class PatchFeatureAugmenter:
         padded[:N] = features
         padded[N:] = 0  # 显式填充0
         return padded
-    

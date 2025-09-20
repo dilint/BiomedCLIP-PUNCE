@@ -241,7 +241,7 @@ def multi_class_scores_mtl(gt_logtis, pred_logits, class_labels, wsi_names, thre
     # return roc_auc_macro, accuracy, recall, precision, fscore
     
 
-def multi_class_scores_mtl_ce(bag_labels, pred_logits, class_labels, wsi_names, threshold):
+def multi_class_scores_mtl_ce(gt_logtis, pred_logits, class_labels, wsi_names, threshold):
     """
     参数：
         bag_labels (list): [N], 真实标签
@@ -259,15 +259,16 @@ def multi_class_scores_mtl_ce(bag_labels, pred_logits, class_labels, wsi_names, 
     # 对于多类别样本 拆分成多个样本，预测概率将正确的其他类别概率设为0
 
     assert len(class_labels) == 6 or len(class_labels) == 5 or len(class_labels) == 9
-    bag_labels = np.array(bag_labels)
+    gt_logtis = np.array(gt_logtis)
     bag_logits = np.array(pred_logits)
+    bag_labels = np.argmax(gt_logtis, axis=1)
     pred_labels = np.argmax(bag_logits, axis=1)
     n_cancer_class = bag_logits.shape[1]
-    print(bag_labels.shape)
+    print(gt_logtis.shape)
     print(bag_logits.shape)
     roc_auc, thresholds = [], []
     for i in range(1, n_cancer_class):
-        roc_auc.append(0)
+        roc_auc.append(roc_auc_score(gt_logtis[:, i], bag_logits[:, i]))
         thresholds.append(0)
     # bag_pred_cancer = np.argmax(bag_pred_cancer_onehot, axis=-1) # [N_cancer,]
     accuracy = accuracy_score(bag_labels, pred_labels)
