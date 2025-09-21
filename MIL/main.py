@@ -41,6 +41,8 @@ def main(args):
     # 读取标签信息 包括(粗粒度标签,聚类细粒度标签) 
     if 'gc' in args.datasets.lower() :
         df_train = pd.read_csv(args.train_label_path)
+        df_train = df_train.iloc[:int(len(df_train)*args.train_ratio)]
+        
         df_cluster = pd.read_csv(args.train_cluster_path)
         # 合并到训练集 DataFrame，确保 wsi_name 对齐
         df_train = df_train.merge(
@@ -411,6 +413,7 @@ if __name__ == '__main__':
     parser.add_argument('--frozen', default=0., type=float, help='if frozen the mil network and train linear layer only')
     parser.add_argument('--pretrain_model_path', default='/home/huangjialong/projects/BiomedCLIP-PUNCE/MIL/output-model/gc_10k/gigapath-abmil-bce-drop0-50e/epoch_49_model.pt', type=str)
     
+    parser.add_argument('--train_ratio', default=1, type=float, help='ratio of training set')
     args = parser.parse_args()
     
     # 通过设置数据集来选择任务和分类的类别数量
