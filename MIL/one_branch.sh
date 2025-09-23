@@ -27,14 +27,15 @@ python main.py --batch_size ${batch_size} --lr ${lr} --num_epoch ${epoch} \
     --patch_pad ${patch_pad} \
     --mil_method ${mil_method} \
     --loss ${loss} \
-    --soft_label ${soft_label} \
+    --multi_label ${multi_label} \
     --project "test${dataset}/one-branch-valid" \
     --train_ratio ${train_ratio} \
     --world_size ${world_size} \
     --title gigapath-${mil_method}-${world_size}xb${batch_size}-ratio${train_ratio}-${loss}-soft${soft_label}-drop${patch_drop}-pad${patch_pad}-epoch${epoch} \
     # --project "${dataset}/one-branch-valid" \
-    # --loss ce --lr 0.0002 --weight_decay 0.005 \
 
+    # --loss ce --lr 0.0002 --weight_decay 0.005 \
+    # --train_ratio ${train_ratio} \
     # --frozen ${frozen} --pretrain 1 --pretrain_model_path "../Geometric-Harmonization/output-model/${pretrain_model_name}/ssl_abmil_1000.pth"\
     # --title gigapath-${mil_method}-b${batch_size}-bce-epoch${epoch}-frozen${frozen}-${pretrain_model_name} \
     # --title debug \
