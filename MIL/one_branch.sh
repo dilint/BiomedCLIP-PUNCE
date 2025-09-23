@@ -16,7 +16,7 @@ lr=$(echo "0.002 * $batch_size" | bc)
 epoch=200
 loss=bce # ce bce
 frozen=0
-soft_label=1
+multi_label=1
 train_ratio=1.
 world_size=1 # 4 1
 # pretrain_model_name='ssl_abmil_b1000_4*128_d10'
@@ -31,7 +31,7 @@ python main.py --batch_size ${batch_size} --lr ${lr} --num_epoch ${epoch} \
     --project "test${dataset}/one-branch-valid" \
     --train_ratio ${train_ratio} \
     --world_size ${world_size} \
-    --title gigapath-${mil_method}-${world_size}xb${batch_size}-ratio${train_ratio}-${loss}-soft${soft_label}-drop${patch_drop}-pad${patch_pad}-epoch${epoch} \
+    --title gigapath-${mil_method}-${world_size}xb${batch_size}-ratio${train_ratio}-${loss}-multi${multi_label}-drop${patch_drop}-pad${patch_pad}-epoch${epoch} \
     # --project "${dataset}/one-branch-valid" \
 
     # --loss ce --lr 0.0002 --weight_decay 0.005 \
