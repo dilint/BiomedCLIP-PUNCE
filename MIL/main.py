@@ -320,7 +320,7 @@ def val_loop(args,model,loader,device,criterion):
     bag_onehot_labels = [label.cpu() for label in bag_onehot_labels]
     
     evaluation_func = multi_class_scores_mtl
-    if args.loss in ['ce']:
+    if args.loss in ['ce'] or not args.multi_label:
         evaluation_func = multi_class_scores_mtl_ce
         
     roc_auc, accuracies, recalls, precisions, fscores, thresholds, cancer_matrix, microbial_matrix = evaluation_func(bag_onehot_labels, bag_logits, class_labels, wsi_names, threshold=args.threshold)
@@ -378,7 +378,7 @@ if __name__ == '__main__':
     parser.add_argument('--weight_decay', default=1e-5, type=float, help='Weight decay [5e-3]')
     parser.add_argument('--accumulation_steps', default=1, type=int, help='Gradient accumulate')
     parser.add_argument('--clip_grad', default=.0, type=float, help='Gradient clip')
-    parser.add_argument('--soft_label', default=1, type=int, help='if use soft label')
+    parser.add_argument('--multi_label', default=1, type=int, help='if use multi label by ranking')
 
     # Model
     # mil meathod
