@@ -151,6 +151,8 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l, train_c):
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer,args.num_epoch / 2, 0.2)
     elif args.lr_sche == 'const':
         scheduler = None
+    elif args.lr_sche == 'cycle':
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer,max_lr=args.lr,epochs=args.num_epoch,steps_per_epoch=len(train_loader))
 
     train_time_meter = AverageMeter()
 
