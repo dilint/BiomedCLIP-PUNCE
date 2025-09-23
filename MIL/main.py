@@ -50,12 +50,17 @@ def cleanup():
 def main():
     # 解析参数
     args = parse_args()
-    
+    print_and_log(args, args.log_file)
     # 设置世界大小（GPU数量）
     world_size = args.world_size
     
-    # 使用多进程启动分布式训练
-    mp.spawn(main_worker, args=(world_size, args), nprocs=world_size, join=True)
+    # 根据world_size决定是否使用多进程
+    if world_size > 1:
+        # 使用多进程启动分布式训练
+        mp.spawn(main_worker, args=(world_size, args), nprocs=world_size, join=True)
+    else:
+        # 单GPU训练，直接调用main_worker
+        main_worker(0, 1, args)
 
 def main_worker(rank, world_size, args):
     """每个GPU的工作进程"""
@@ -63,8 +68,9 @@ def main_worker(rank, world_size, args):
     torch.cuda.set_device(rank)
     device = torch.device(f'cuda:{rank}')
     
-    # 初始化分布式训练
-    setup(rank, world_size)
+    # 只有在多GPU训练时才需要初始化分布式训练
+    if world_size > 1:
+        setup(rank, world_size)
     
     # 设置随机种子（确保所有进程有相同的随机种子）
     seed_torch(args.seed + rank)
@@ -102,8 +108,9 @@ def main_worker(rank, world_size, args):
     
     one_fold(args, ckc_metric, train_wsi_names, train_wsi_labels, test_wsi_names, test_wsi_labels, train_cluster_labels, device, rank)
     
-    # 清理分布式训练环境
-    cleanup()
+    # 只有在多GPU训练时才需要清理分布式训练环境
+    if world_size > 1:
+        cleanup()
 
 def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l, train_c, device, rank):
     # --->initiation 
@@ -139,14 +146,19 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l, train_c, device
     if args.imbalance_sampler:
         train_set = ClassBalancedDataset(train_set, oversample_thr=0.22)
     
-    # 使用分布式采样器
-    train_sampler = DistributedSampler(
-        train_set, 
-        num_replicas=args.world_size, 
-        rank=rank, 
-        shuffle=True,
-        seed=args.seed
-    )
+    # 根据world_size决定使用哪种采样器
+    if args.world_size > 1:
+        # 使用分布式采样器
+        train_sampler = DistributedSampler(
+            train_set, 
+            num_replicas=args.world_size, 
+            rank=rank, 
+            shuffle=True,
+            seed=args.seed
+        )
+    else:
+        # 单GPU训练，使用普通采样器
+        train_sampler = RandomSampler(train_set) if args.imbalance_sampler else None
     
     generator = torch.Generator()
     if args.fix_loader_random:
@@ -157,8 +169,9 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l, train_c, device
         train_set, 
         batch_size=args.batch_size, 
         sampler=train_sampler,  # 使用sampler而不是shuffle
-        num_workers=args.num_workers,
+        shuffle=(train_sampler is None),  # 如果没有sampler，则使用shuffle
         pin_memory=True,
+        num_workers=args.num_workers,
         persistent_workers=True,
         prefetch_factor=2,
         generator=generator,
@@ -180,8 +193,9 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l, train_c, device
         dropout=args.dropout
     ).to(device)
     
-    # 使用DistributedDataParallel包装模型
-    model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False, gradient_as_bucket_view=True)
+    # 只有在多GPU训练时才使用DDP包装模型
+    if args.world_size > 1:
+        model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False, gradient_as_bucket_view=True)
 
     if args.pretrain:
         # 主进程加载预训练权重，然后广播到所有进程
@@ -192,17 +206,24 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l, train_c, device
         else:
             state_dict = None
         
-        # 广播状态字典到所有进程
-        state_dict = broadcast_state_dict(state_dict, device, rank)
+        # 在多GPU训练时需要广播状态字典
+        if args.world_size > 1:
+            state_dict = broadcast_state_dict(state_dict, device, rank)
         
         # 加载权重
-        missing_keys, unexpected_keys = model.module.load_state_dict(state_dict, strict=False)
+        if args.world_size > 1:
+            missing_keys, unexpected_keys = model.module.load_state_dict(state_dict, strict=False)
+        else:
+            missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+            
         if rank == 0:
             print(f"Missing keys: {missing_keys}")
             print(f"Unexpected keys: {unexpected_keys}")
     
     if args.frozen:
-        for name, param in model.named_parameters():
+        # 根据是否使用DDP选择模型参数
+        model_params = model.module.parameters() if args.world_size > 1 else model.parameters()
+        for name, param in model_params:
             if "predictor" not in name:
                 param.requires_grad_(False)
     
@@ -229,16 +250,18 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l, train_c, device
     if args.eval_only:
         if rank == 0:
             ckp = torch.load(os.path.join(args.model_path,'ckp.pt'), weights_only=False)
-            model.module.load_state_dict(ckp['model'])
+            if args.world_size > 1:
+                model.module.load_state_dict(ckp['model'])
+            else:
+                model.load_state_dict(ckp['model'])
             val_loop(args, model, test_loader, device, cls_criterion, rank)
-            # train_loader = DataLoader(train_set, batch_size=args.batch_size, num_workers=0)
-            # val_loop(args,model,train_loader,device,cls_criterion)
         return
     
     # 训练epoch
     for epoch in range(args.num_epoch):
         # 设置epoch给采样器，确保每个epoch的shuffle一致
-        train_loader.sampler.set_epoch(epoch)
+        if args.world_size > 1:
+            train_loader.sampler.set_epoch(epoch)
         
         train_loss, start, end = 0, 0, 0
         train_loss, start, end = train_loop(args, model, train_loader, optimizer, device, amp_autocast, cls_criterion, scheduler, epoch, rank)
@@ -256,8 +279,11 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l, train_c, device
                 'py': random.getstate(),
                 'loader': train_loader.generator.get_state() if args.fix_loader_random else '',
             }
+            # 根据是否使用DDP选择模型状态字典
+            model_state_dict = model.module.state_dict() if args.world_size > 1 else model.state_dict()
+            
             ckp = {
-                'model': model.module.state_dict(),  # 保存module的状态字典
+                'model': model_state_dict,
                 'lr_sche': scheduler.state_dict() if scheduler else None,
                 'optimizer': optimizer.state_dict(),
                 'epoch': epoch+1,
@@ -273,7 +299,10 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l, train_c, device
         # test
         if not args.no_log:
             best_std = torch.load(os.path.join(args.model_path, 'ckp.pt'), weights_only=False)
-            info = model.module.load_state_dict(best_std['model'])
+            if args.world_size > 1:
+                info = model.module.load_state_dict(best_std['model'])
+            else:
+                info = model.load_state_dict(best_std['model'])
             print_and_log(info, args.log_file)
         
         print_and_log('Info: Evaluation for test set', args.log_file)
@@ -351,10 +380,11 @@ def train_loop(args, model, loader, optimizer, device, amp_autocast, cls_criteri
     end = time.time()
     train_loss_log = train_loss_log/len(loader)
     
-    # 对所有进程的损失求平均
-    train_loss_log_tensor = torch.tensor(train_loss_log, device=device)
-    dist.all_reduce(train_loss_log_tensor, op=dist.ReduceOp.SUM)
-    train_loss_log = train_loss_log_tensor.item() / args.world_size
+    # 在多GPU训练时对所有进程的损失求平均
+    if args.world_size > 1:
+        train_loss_log_tensor = torch.tensor(train_loss_log, device=device)
+        dist.all_reduce(train_loss_log_tensor, op=dist.ReduceOp.SUM)
+        train_loss_log = train_loss_log_tensor.item() / args.world_size
     
     if not args.lr_supi and scheduler is not None:
         scheduler.step()
