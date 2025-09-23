@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -x
 # export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=1,2,3
+
 
 # K=4 # 4 8 16 32
 # ratio=0.1
 # min=20
 dataset=gc_10k # gc_10k gc_v15
-mil_method=transmil # transmil abmil wsi_vit
+mil_method=abmil # transmil abmil wsi_vit
 patch_drop=1
 patch_pad=1
 weight=1.
@@ -29,7 +31,7 @@ python main.py --batch_size ${batch_size} --lr ${lr} --num_epoch ${epoch} \
     --mil_method ${mil_method} \
     --loss ${loss} \
     --multi_label ${multi_label} \
-    --project "test${dataset}/one-branch-valid" \
+    --project "tmptest${dataset}/one-branch-valid" \
     --train_ratio ${train_ratio} \
     --world_size ${world_size} \
     --lr_sche ${lr_sche} \
