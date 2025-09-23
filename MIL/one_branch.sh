@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
 set -x
-export CUDA_VISIBLE_DEVICES=1
+# export CUDA_VISIBLE_DEVICES=1
 
 # K=4 # 4 8 16 32
 # ratio=0.1
 # min=20
-dataset=gc_v15 # gc_10k gc_v15
-mil_method=abmil # transmil abmil wsi_vit
-patch_drop=0
-patch_pad=0
+dataset=gc_10k # gc_10k gc_v15
+mil_method=transmil # transmil abmil wsi_vit
+patch_drop=1
+patch_pad=1
 weight=1.
-batch_size=1
+batch_size=1 # 32 1
 warmup=200
 lr=$(echo "0.002 * $batch_size" | bc)
 epoch=200
 loss=bce # ce bce
 frozen=0
 soft_label=1
-train_ratio=0.8
+train_ratio=1.
+world_size=1 # 4 1
 # pretrain_model_name='ssl_abmil_b1000_4*128_d10'
 
 python main.py --batch_size ${batch_size} --lr ${lr} --num_epoch ${epoch} \
@@ -29,7 +30,8 @@ python main.py --batch_size ${batch_size} --lr ${lr} --num_epoch ${epoch} \
     --soft_label ${soft_label} \
     --project "test${dataset}/one-branch-valid" \
     --train_ratio ${train_ratio} \
-    --title gigapath-${mil_method}-b${batch_size}-ratio${train_ratio}-${loss}-soft${soft_label}-drop${patch_drop}-pad${patch_pad}-epoch${epoch} \
+    --world_size ${world_size} \
+    --title gigapath-${mil_method}-${world_size}xb${batch_size}-ratio${train_ratio}-${loss}-soft${soft_label}-drop${patch_drop}-pad${patch_pad}-epoch${epoch} \
     # --project "${dataset}/one-branch-valid" \
     # --loss ce --lr 0.0002 --weight_decay 0.005 \
 

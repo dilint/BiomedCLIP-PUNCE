@@ -28,10 +28,10 @@ class PPEG(nn.Module):
         # H, W = int(N**0.5),int(N**0.5)
         # cls_token, feat_token = x[:, 0], x[:, 1:]
         # feat_token = x
-        cnn_feat = x.transpose(1, 2).view(B, C, H, W)
+        cnn_feat = x.transpose(1, 2).contiguous().view(B, C, H, W)
 
         x = self.proj(cnn_feat)+cnn_feat+self.proj1(cnn_feat)+self.proj2(cnn_feat)
-        x = x.flatten(2).transpose(1, 2)
+        x = x.flatten(2).transpose(1, 2).contiguous()
         # print(add_length)
         if add_length >0:
             x = x[:,:-add_length]

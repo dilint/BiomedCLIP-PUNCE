@@ -206,7 +206,7 @@ class C16Dataset(Dataset):
         else:
             cluster_labels = None
         if self.transform:
-            features = self.transform(features.to(cluster_labels.device), cluster_labels)
+            features = self.transform(features, cluster_labels)
         return features, label, file_path
 
 
