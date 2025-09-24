@@ -243,6 +243,9 @@ def one_fold(args, ckc_metric, train_p, train_l, test_p, test_l, train_c, device
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer,args.num_epoch / 2, 0.2)
     elif args.lr_sche == 'const':
         scheduler = None
+    elif args.lr_sche == 'cycle':
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer,max_lr=args.lr,epochs=args.num_epoch,steps_per_epoch=len(train_loader))
+
 
     train_time_meter = AverageMeter()
 
@@ -343,7 +346,7 @@ def train_loop(args, model, loader, optimizer, device, amp_autocast, cls_criteri
             time_forward = time_forward_end - time_data_end
         
         # 只在主进程打印前几个batch的信息
-        if i < 3 and rank == 0:
+        if epoch < 3 and i < 3 and rank == 0:
             print_and_log(list(map(lambda x: os.path.basename(x), file_path)))
             print_and_log(bag.shape)
             print_and_log('time_data: %.3f, time_forward: %.3f' % (time_data, time_forward))
