@@ -356,6 +356,35 @@ class BuildClsLoss(nn.Module):
         assert not torch.isnan(logit_loss)
         return logit_loss
     
+@torch.no_grad()
+def sinkhorn(out, l, sinkhorn_iterations, stat=None):
+
+    Q = torch.exp(out / l).t()
+    
+    N = Q.shape[1] 
+    K = Q.shape[0] 
+
+    r = (torch.ones((K, 1)) / K).cuda()
+    c = (torch.ones((N, 1)) / N).cuda()
+    if stat is None:
+        inv_K = 1. / K    
+    else:
+        inv_K = stat.clone().detach().reshape(K,1).float()
+        inv_K = inv_K/torch.sum(inv_K)
+    inv_N = 1. / N
+
+    for _ in range(sinkhorn_iterations):
+        r = inv_K / (Q @ c)    
+        c = inv_N / (Q.T @ r)  
+
+    Q = r * Q * c.t()
+    Q = Q.t()
+
+    Q *= N 
+
+    return Q
+
+
 if __name__ == '__main__':
     num_classes = 10
     batch_size = 5
