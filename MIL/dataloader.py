@@ -209,7 +209,85 @@ class C16Dataset(Dataset):
             features = self.transform(features, cluster_labels)
         return features, label, file_path
 
+import psutil
 
+class C16DatasetMemoryAware(Dataset):
+    def __init__(self, file_name, file_label, root, cluster_labels=None, 
+                 persistence=False, transform=None, memory_limit_ratio=0.7):
+        """
+        参数
+            memory_limit_ratio: 最大内存使用比例 (相对于可用内存)
+        """
+        super(C16DatasetMemoryAware, self).__init__()
+        self.file_name = file_name
+        self.slide_label = [int(_l) for _l in file_label]
+        self.size = len(self.file_name)
+        self.root = root
+        self.persistence = persistence
+        self.transform = transform
+        self.cluster_labels = cluster_labels
+        
+        # 计算可用内存
+        available_memory = psutil.virtual_memory().available * memory_limit_ratio
+        self.preloaded_data = {}
+        self.preload_indices = set()
+        
+        if not persistence and available_memory > 0:
+            # 估算单个文件大小并确定可以预加载的文件数量
+            sample_file_path = os.path.join(root, 'pt' if "pt" in os.listdir(root) else root, file_name[0] + '.pt')
+            sample_data = torch.load(sample_file_path, map_location='cpu', weights_only=False)
+            sample_size = sample_data.element_size() * sample_data.nelement()
+            
+            max_preload = int(available_memory / sample_size)
+            num_preload = min(max_preload, self.size)
+            
+            print(f"可用内存: {available_memory/1024**3:.2f}GB, 单个文件大小: {sample_size/1024**2:.2f}MB, 可预加载文件数: {num_preload}/{self.size}")
+            
+            # 预加载前num_preload个文件
+            self.preload_indices = set(range(num_preload))
+            if "pt" in os.listdir(self.root):
+                dir_path = os.path.join(self.root, "pt")
+            else:
+                dir_path = self.root
+                
+            for idx in self.preload_indices:
+                file_path = os.path.join(dir_path, self.file_name[idx] + '.pt')
+                self.preloaded_data[idx] = torch.load(file_path, map_location='cpu', weights_only=False)
+        
+        if persistence:
+            # 全量预加载到内存
+            self.feats = []
+            for _f in file_name:
+                file_path = os.path.join(root, 'pt' if "pt" in os.listdir(root) else root, _f + '.pt')
+                self.feats.append(torch.load(file_path, map_location='cpu', weights_only=False))
+        else:
+            self.feats = None
+
+    def __len__(self):
+        return self.size
+    
+    def __getitem__(self, idx):
+        if self.persistence:
+            features = self.feats[idx]
+        elif idx in self.preload_indices:
+            features = self.preloaded_data[idx]
+        else:
+            if "pt" in os.listdir(self.root):
+                dir_path = os.path.join(self.root, "pt")
+            else:
+                dir_path = self.root
+            file_path = os.path.join(dir_path, self.file_name[idx] + '.pt')
+            features = torch.load(file_path, map_location='cpu', weights_only=False)
+        
+        label = int(self.slide_label[idx])
+        cluster_labels = self.cluster_labels[idx] if self.cluster_labels is not None else None
+        
+        if self.transform:
+            features = self.transform(features, cluster_labels)
+        
+        return features, label, self.file_name[idx]
+    
+    
 class TwoViewAugDataset_index(Dataset):
     r"""Returns two augmentation of each image and the image label."""
 
