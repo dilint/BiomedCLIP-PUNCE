@@ -209,16 +209,26 @@ class C16Dataset(Dataset):
             features = self.transform(features, cluster_labels)
         return features, label, file_path
 
+from torch.utils.data import Dataset
+import torch.multiprocessing as mp
 import psutil
 
-class C16DatasetMemoryAware(Dataset):
+class C16DatasetSharedMemory(Dataset):
     def __init__(self, file_name, file_label, root, cluster_labels=None, 
-                 persistence=False, transform=None, memory_limit_ratio=0.7):
+                 persistence=False, transform=None, shared_data=None):
         """
-        参数
-            memory_limit_ratio: 最大内存使用比例 (相对于可用内存)
+        处理数据集的类。共享内存或持久化存储的数据通过参数传入。
+        
+        Args:
+            file_name (list): 样本文件名列表。
+            file_label (list): 样本标签列表。
+            root (str): 数据文件根目录。
+            cluster_labels (list, optional): 聚类标签。默认为 None。
+            persistence (bool, optional): 是否使用持久化存储（每个进程独立加载）。默认为 False。
+            transform (callable, optional): 数据增强函数。默认为 None。
+            shared_data (dict, optional): 包含已加载到共享内存的张量的字典。默认为 None。
         """
-        super(C16DatasetMemoryAware, self).__init__()
+        super(C16DatasetSharedMemory, self).__init__()
         self.file_name = file_name
         self.slide_label = [int(_l) for _l in file_label]
         self.size = len(self.file_name)
@@ -227,38 +237,16 @@ class C16DatasetMemoryAware(Dataset):
         self.transform = transform
         self.cluster_labels = cluster_labels
         
-        # 计算可用内存
-        available_memory = psutil.virtual_memory().available * memory_limit_ratio
-        self.preloaded_data = {}
-        self.preload_indices = set()
+        # 将共享数据引用直接赋值给实例变量
+        self.shared_data = shared_data
         
-        if not persistence and available_memory > 0:
-            # 估算单个文件大小并确定可以预加载的文件数量
-            sample_file_path = os.path.join(root, 'pt' if "pt" in os.listdir(root) else root, file_name[0] + '.pt')
-            sample_data = torch.load(sample_file_path, map_location='cpu', weights_only=False)
-            sample_size = sample_data.element_size() * sample_data.nelement()
-            
-            max_preload = int(available_memory / sample_size)
-            num_preload = min(max_preload, self.size)
-            
-            print(f"可用内存: {available_memory/1024**3:.2f}GB, 单个文件大小: {sample_size/1024**2:.2f}MB, 可预加载文件数: {num_preload}/{self.size}")
-            
-            # 预加载前num_preload个文件
-            self.preload_indices = set(range(num_preload))
-            if "pt" in os.listdir(self.root):
-                dir_path = os.path.join(self.root, "pt")
-            else:
-                dir_path = self.root
-                
-            for idx in self.preload_indices:
-                file_path = os.path.join(dir_path, self.file_name[idx] + '.pt')
-                self.preloaded_data[idx] = torch.load(file_path, map_location='cpu', weights_only=False)
-        
-        if persistence:
-            # 全量预加载到内存
+        # persistence 模式，在每个进程独立加载数据
+        # 这里的逻辑与你的原始代码保持一致
+        if self.persistence:
             self.feats = []
+            pt_dir = os.path.join(root, 'pt') if "pt" in os.listdir(root) else root
             for _f in file_name:
-                file_path = os.path.join(root, 'pt' if "pt" in os.listdir(root) else root, _f + '.pt')
+                file_path = os.path.join(pt_dir, _f + '.pt')
                 self.feats.append(torch.load(file_path, map_location='cpu', weights_only=False))
         else:
             self.feats = None
@@ -267,27 +255,73 @@ class C16DatasetMemoryAware(Dataset):
         return self.size
     
     def __getitem__(self, idx):
-        if self.persistence:
+        # 优先从共享内存中读取
+        if self.shared_data is not None and idx in self.shared_data:
+            features = self.shared_data[idx]
+        # 如果共享内存不可用，再从持久化存储中读取
+        elif self.persistence:
             features = self.feats[idx]
-        elif idx in self.preload_indices:
-            features = self.preloaded_data[idx]
+        # 最后，如果以上两者都不可用，则从磁盘读取
         else:
-            if "pt" in os.listdir(self.root):
-                dir_path = os.path.join(self.root, "pt")
-            else:
-                dir_path = self.root
-            file_path = os.path.join(dir_path, self.file_name[idx] + '.pt')
+            pt_dir = os.path.join(self.root, 'pt') if "pt" in os.listdir(self.root) else self.root
+            file_path = os.path.join(pt_dir, self.file_name[idx] + '.pt')
             features = torch.load(file_path, map_location='cpu', weights_only=False)
-        
-        label = int(self.slide_label[idx])
-        cluster_labels = self.cluster_labels[idx] if self.cluster_labels is not None else None
+            
+        label = self.slide_label[idx]
+        cluster_labels_item = self.cluster_labels[idx] if self.cluster_labels is not None else -1
         
         if self.transform:
-            features = self.transform(features, cluster_labels)
+            features = self.transform(features, cluster_labels_item)
         
         return features, label, self.file_name[idx]
-    
-    
+
+    # --- 修改 preload_to_shared_memory 函数以调用全局函数 ---
+    def preload_to_shared_memory(file_names, root_dir, memory_limit_ratio):
+        """
+        负责在主进程中**顺序**加载数据并移入共享内存。
+        这个函数只由主进程调用一次。
+        """
+        shared_data = {}
+        print("Pre-loading data for shared memory...") 
+
+        try:
+            available_memory = psutil.virtual_memory().available * memory_limit_ratio
+        except (ImportError, NameError):
+            print("`psutil` library not found. Returning default 4GB available memory.")
+            available_memory = 4 * 1024**3 # 默认 4GB
+
+        pt_dir = os.path.join(root_dir, 'pt') if "pt" in os.listdir(root_dir) else root_dir
+
+        sample_file_path = os.path.join(pt_dir, file_names[0] + '.pt')
+        try:
+            sample_data = torch.load(sample_file_path, map_location='cpu', weights_only=False)
+            sample_size = sample_data.element_size() * sample_data.nelement()
+        except Exception as e:
+            print(f"Error loading sample file {file_names[0]}: {e}")
+            return {}
+
+        if sample_size == 0:
+            print("Sample file size is zero, cannot estimate preload count.")
+            return {}
+            
+        max_preload = min(int(available_memory / sample_size), len(file_names))
+        print(f"Available memory for preload: {available_memory/1024**3:.2f}GB, "
+            f"Sample file size: {sample_size/1024**2:.2f}MB, "
+            f"Preloading {max_preload}/{len(file_names)} files.")
+
+        for idx in range(max_preload):
+            file_name = file_names[idx]
+            try:
+                file_path = os.path.join(pt_dir, file_name + '.pt')
+                data = torch.load(file_path, map_location='cpu', weights_only=False)
+                data.share_memory_() # 关键步骤
+                shared_data[idx] = data
+            except Exception as e:
+                print(f"Error loading file {file_name}: {e}")
+                continue
+        print(f"Preloaded {len(shared_data)}/{max_preload} files to shared memory.")
+        return shared_data
+
 class TwoViewAugDataset_index(Dataset):
     r"""Returns two augmentation of each image and the image label."""
 

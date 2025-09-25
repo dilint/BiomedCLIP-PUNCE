@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
 set -x
 # export CUDA_VISIBLE_DEVICES=1
-export CUDA_VISIBLE_DEVICES=1,2,3
-
 
 # K=4 # 4 8 16 32
 # ratio=0.1
 # min=20
-dataset=gc_10k # gc_10k gc_v15
-mil_method=abmil # transmil abmil wsi_vit
-patch_drop=0
-patch_pad=0
+dataset=gc_v15 # gc_10k gc_v15
+mil_method=transmil # transmil abmil wsi_vit
+patch_drop=1
+patch_pad=1
 weight=1.
 batch_size=32 # 32 1
 warmup=200

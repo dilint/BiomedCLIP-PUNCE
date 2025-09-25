@@ -5,7 +5,7 @@ import numpy as np
 from copy import deepcopy
 import torch.nn as nn
 import pandas as pd
-from dataloader import *
+from dataloader import * # 假设这个文件包含了C16DatasetSharedMemory
 from model import *
 from loss import *
 from torch.utils.data import DataLoader, RandomSampler, default_collate, DistributedSampler
@@ -16,6 +16,7 @@ import time
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.multiprocessing as mp
+import random
 
 from modules.vit_wsi.model_v1 import Model_V1
 from timm.utils import AverageMeter,dispatch_clip_grad
@@ -59,11 +60,10 @@ def main():
         df_train = df_train.iloc[:int(len(df_train)*args.train_ratio)]
         
         df_cluster = pd.read_csv(args.train_cluster_path)
-        # 合并到训练集 DataFrame，确保 wsi_name 对齐
         df_train = df_train.merge(
             df_cluster[['wsi_name', 'cluster_label']], 
             on='wsi_name', 
-            how='left'  # 保留所有训练集样本，缺失的聚类标签设为 NaN
+            how='left'
         )
         
         train_wsi_names = df_train['wsi_name'].values
@@ -75,35 +75,47 @@ def main():
         test_wsi_names = df_test['wsi_name'].values
         test_wsi_labels = df_test['wsi_label'].map(label2id).values
     
-    # 加载数据到共享内存 ===
+    # === 关键改进点2: 加载数据到共享内存 ===
+    # 注意：这里需要你修改 C16DatasetSharedMemory 的实现
+    # 在 __init__ 中，它应该能根据 persistence 参数，将数据加载到共享内存并返回
+    # 或者，你可以在这里手动加载数据到共享内存
     print("Loading datasets into shared memory...")
     # 假设 C16DatasetSharedMemory 的 load_to_shared_memory 方法可以实现这个功能
-    global train_data_shared
-    train_data_shared = C16DatasetSharedMemory.preload_to_shared_memory(
+    train_data_shared, train_labels_shared, train_cluster_shared = C16DatasetSharedMemory.load_to_shared_memory(
         train_wsi_names, 
-        root_dir=args.dataset_root, 
-        memory_limit_ratio=0.4,
+        train_wsi_labels, 
+        train_cluster_labels, 
+        root=args.dataset_root, 
+        persistence=args.persistence,
+        memory_limit_ratio=0.7,
+        num_workers=args.num_workers
     )
     
-    test_data_shared = []
+    test_data_shared, test_labels_shared, _ = C16DatasetSharedMemory.load_to_shared_memory(
+        test_wsi_names, 
+        test_wsi_labels, 
+        None, 
+        root=args.dataset_root, 
+        persistence=args.persistence,
+        memory_limit_ratio=0.7,
+        num_workers=0 # 通常测试集不需要多进程加载
+    )
     print("Datasets loaded into shared memory.")
-    
+
     if world_size > 1:
         # 使用多进程启动分布式训练，并传递共享数据
         mp.spawn(main_worker, 
-                 args=(world_size, args, 
-                       train_wsi_names, train_wsi_labels, train_cluster_labels, train_data_shared,
-                       test_wsi_names, test_wsi_labels, test_data_shared), 
+                 args=(world_size, args, train_data_shared, train_labels_shared, train_cluster_shared, 
+                       test_data_shared, test_labels_shared), 
                  nprocs=world_size, 
                  join=True)
     else:
         # 单GPU训练，直接调用main_worker，并传递共享数据
-        main_worker(0, 1, args, train_wsi_names, train_wsi_labels, train_cluster_labels, train_data_shared,
-                       test_wsi_names, test_wsi_labels, test_data_shared)
+        main_worker(0, 1, args, train_data_shared, train_labels_shared, train_cluster_shared, 
+                    test_data_shared, test_labels_shared)
 
-def main_worker(rank, world_size, args, 
-                train_file_names, train_file_labels, train_cluster_labels, train_shared_data,
-                test_file_names, test_file_labels, test_shared_data):
+def main_worker(rank, world_size, args, train_data_shared, train_labels_shared, train_cluster_shared, 
+                test_data_shared, test_labels_shared):
     """每个GPU的工作进程"""
     torch.cuda.set_device(rank)
     device = torch.device(f'cuda:{rank}')
@@ -118,24 +130,23 @@ def main_worker(rank, world_size, args,
     args.no_log = args.no_log or (rank != 0)
     
     acs, pre, rec, fs, auc, te_auc, te_fs=[],[],[],[],[],[],[]
-    ckc_metric = [acs, pre, rec, fs, auc, te_auc, te_fs] # acs: [fold, fold] fold: [task1, task2]
+    ckc_metric = [acs, pre, rec, fs, auc, te_auc, te_fs]
 
     if not args.no_log:
         print_and_log('Dataset: ' + args.datasets, args.log_file)
     
     # 传递共享内存中的数据引用给 one_fold 函数
-    one_fold(args, ckc_metric,
-             train_file_names, train_file_labels, train_cluster_labels, train_shared_data,
-             test_file_names, test_file_labels, test_shared_data,
+    one_fold(args, ckc_metric, 
+             train_data_shared, train_labels_shared, train_cluster_shared,
+             test_data_shared, test_labels_shared,
              device, rank)
     
-    # 只有在多GPU训练时才需要清理分布式训练环境
     if world_size > 1:
         cleanup()
 
 def one_fold(args, ckc_metric, 
-             train_file_names, train_file_labels, train_cluster_labels, train_shared_data,
-             test_file_names, test_file_labels, test_shared_data,
+             train_data_shared, train_labels_shared, train_cluster_shared,
+             test_data_shared, test_labels_shared,
              device, rank):
     # --->initiation 
     if args.keep_psize_collate:
@@ -144,11 +155,11 @@ def one_fold(args, ckc_metric,
         collate_fn = default_collate
     amp_autocast = torch.cuda.amp.autocast if args.amp else suppress
     
-    train_c = [torch.tensor(labels) for labels in train_cluster_labels]
+    train_c = [torch.tensor(labels) for labels in train_cluster_shared]
     
     acs,pre,rec,fs,auc,te_auc,te_fs = ckc_metric
 
-    # ***--->load data
+    # ***--->load data (使用共享内存数据)
     if args.datasets.lower() in ['gc_v15', 'gc_10k']:
         pad_augmenter = PatchFeatureAugmenter(augment_type='none')
         drop_augmenter = PatchFeatureAugmenter(kmeans_k=args.kmeans_k, kmeans_ratio=args.kmeans_ratio, kmeans_min=args.kmeans_min)
@@ -164,14 +175,14 @@ def one_fold(args, ckc_metric,
         # === 关键改进点3: 直接使用共享内存数据创建数据集实例 ===
         # 注意：C16DatasetSharedMemory 的 __init__ 方法需要修改，使其接受共享内存数据
         train_set = C16DatasetSharedMemory(
-            train_file_names, train_file_labels, root=args.dataset_root, 
-            cluster_labels=train_c, persistence=False, transform=train_transform,
-            shared_data=train_shared_data
+            train_data_shared, train_labels_shared, root=args.dataset_root, 
+            cluster_labels=train_c, persistence=True, transform=train_transform,
+            memory_limit_ratio=0.7, rank=rank, world_size=args.world_size
         )
         test_set = C16DatasetSharedMemory(
-            test_file_names, test_file_labels, root=args.dataset_root, 
-            cluster_labels=None, persistence=False, transform=test_transform,
-            shared_data=test_shared_data
+            test_data_shared, test_labels_shared, root=args.dataset_root, 
+            cluster_labels=None, persistence=True, transform=test_transform,
+            memory_limit_ratio=0., rank=rank, world_size=args.world_size
         )
     else:
         assert f'{args.datasets} dataset not found'
@@ -202,8 +213,8 @@ def one_fold(args, ckc_metric,
     train_loader = DataLoader(
         train_set, 
         batch_size=args.batch_size, 
-        sampler=train_sampler,  # 使用sampler而不是shuffle
-        shuffle=(train_sampler is None),  # 如果没有sampler，则使用shuffle
+        sampler=train_sampler,
+        shuffle=(train_sampler is None),
         pin_memory=True,
         num_workers=args.num_workers,
         persistent_workers=True,
@@ -213,12 +224,12 @@ def one_fold(args, ckc_metric,
     )
     
     # 测试集不需要分布式采样器
-    if rank == 0:  # 只在主进程加载测试集
+    if rank == 0: 
         test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=0, collate_fn=collate_fn)
     else:
         test_loader = None
-
-    # 创建模型并移动到当前设备
+    
+    # ... (模型创建、DDP包装、优化器、损失函数等代码保持不变) ...
     model = MIL(
         input_dim=args.input_dim,
         mlp_dim=512,
@@ -226,13 +237,11 @@ def one_fold(args, ckc_metric,
         mil=args.mil_method,
         dropout=args.dropout
     ).to(device)
-    
-    # 只有在多GPU训练时才使用DDP包装模型
+
     if args.world_size > 1:
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False, gradient_as_bucket_view=True)
 
     if args.pretrain:
-        # 主进程加载预训练权重，然后广播到所有进程
         if rank == 0:
             state_dict = torch.load(args.pretrain_model_path, map_location='cpu', weights_only=False)
             del state_dict['predictor.weight']
@@ -240,11 +249,9 @@ def one_fold(args, ckc_metric,
         else:
             state_dict = None
         
-        # 在多GPU训练时需要广播状态字典
         if args.world_size > 1:
             state_dict = broadcast_state_dict(state_dict, device, rank)
         
-        # 加载权重
         if args.world_size > 1:
             missing_keys, unexpected_keys = model.module.load_state_dict(state_dict, strict=False)
         else:
@@ -255,16 +262,13 @@ def one_fold(args, ckc_metric,
             print(f"Unexpected keys: {unexpected_keys}")
     
     if args.frozen:
-        # 根据是否使用DDP选择模型参数
         model_params = model.module.parameters() if args.world_size > 1 else model.parameters()
         for name, param in model_params:
             if "predictor" not in name:
                 param.requires_grad_(False)
     
-    # ***--->construct criterion 构造不同损失
     cls_criterion = BuildClsLoss(args)
 
-    # optimizer
     if args.opt == 'adamw':
         optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=args.weight_decay)
     elif args.opt == 'adam':
@@ -280,10 +284,8 @@ def one_fold(args, ckc_metric,
     elif args.lr_sche == 'cycle':
         scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer,max_lr=args.lr,epochs=args.num_epoch,steps_per_epoch=len(train_loader))
 
-
     train_time_meter = AverageMeter()
 
-    # 如果只用来评估测试集的性能
     if args.eval_only:
         if rank == 0:
             ckp = torch.load(os.path.join(args.model_path,'ckp.pt'), weights_only=False)
@@ -294,9 +296,7 @@ def one_fold(args, ckc_metric,
             val_loop(args, model, test_loader, device, cls_criterion, rank)
         return
     
-    # 训练epoch
     for epoch in range(args.num_epoch):
-        # 设置epoch给采样器，确保每个epoch的shuffle一致
         if args.world_size > 1:
             train_loader.sampler.set_epoch(epoch)
         
@@ -308,7 +308,6 @@ def one_fold(args, ckc_metric,
             print_and_log('\r Epoch [%d/%d] train loss: %.1E, time: %.3f(%.3f)' % 
                 (epoch+1, args.num_epoch, train_loss, train_time_meter.val, train_time_meter.avg), args.log_file)
         
-        # 只在主进程保存checkpoint
         if rank == 0:
             random_state = {
                 'np': np.random.get_state(),
@@ -316,7 +315,6 @@ def one_fold(args, ckc_metric,
                 'py': random.getstate(),
                 'loader': train_loader.generator.get_state() if args.fix_loader_random else '',
             }
-            # 根据是否使用DDP选择模型状态字典
             model_state_dict = model.module.state_dict() if args.world_size > 1 else model.state_dict()
             
             ckp = {
@@ -333,7 +331,6 @@ def one_fold(args, ckc_metric,
 
     if rank == 0:
         torch.save(ckp, os.path.join(args.model_path, 'ckp.pt'))
-        # test
         if not args.no_log:
             best_std = torch.load(os.path.join(args.model_path, 'ckp.pt'), weights_only=False)
             if args.world_size > 1:
@@ -348,6 +345,7 @@ def one_fold(args, ckc_metric,
     return 
 
 def train_loop(args, model, loader, optimizer, device, amp_autocast, cls_criterion, scheduler, epoch, rank):
+    # ... (该函数与你原来的代码完全相同，无需修改)
     last_end = start = time.time()
     train_loss_log = 0.
     losses = {}
@@ -355,7 +353,6 @@ def train_loop(args, model, loader, optimizer, device, amp_autocast, cls_criteri
     
     model.train()
     
-    # 只在主进程打印参数信息
     if not args.no_log and epoch == 0:
         n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
         num_total_param = sum(p.numel() for p in model.parameters())
@@ -379,7 +376,6 @@ def train_loop(args, model, loader, optimizer, device, amp_autocast, cls_criteri
             time_forward_end = time.time()
             time_forward = time_forward_end - time_data_end
         
-        # 只在主进程打印前几个batch的信息
         if epoch < 3 and i < 3 and rank == 0:
             print_and_log(list(map(lambda x: os.path.basename(x), file_path)))
             print_and_log(bag.shape)
@@ -402,7 +398,6 @@ def train_loop(args, model, loader, optimizer, device, amp_autocast, cls_criteri
                 loss_cls_meters[k] = AverageMeter()
             loss_cls_meters[k].update(v, 1)
             
-        # 只在主进程记录日志
         if (i % args.log_iter == 0 or i == len(loader)-1) and rank == 0:
             lrl = [param_group['lr'] for param_group in optimizer.param_groups]
             lr = sum(lrl) / len(lrl)
@@ -417,7 +412,6 @@ def train_loop(args, model, loader, optimizer, device, amp_autocast, cls_criteri
     end = time.time()
     train_loss_log = train_loss_log/len(loader)
     
-    # 在多GPU训练时对所有进程的损失求平均
     if args.world_size > 1:
         train_loss_log_tensor = torch.tensor(train_loss_log, device=device)
         dist.all_reduce(train_loss_log_tensor, op=dist.ReduceOp.SUM)
@@ -427,11 +421,9 @@ def train_loop(args, model, loader, optimizer, device, amp_autocast, cls_criteri
         scheduler.step()
     
     return train_loss_log, start, end
-
+    
 def val_loop(args, model, loader, device, criterion, rank):
-    """
-    只在主进程进行评估
-    """
+    # ... (该函数与你原来的代码完全相同，无需修改)
     if rank != 0:
         return None, None, None, None, None, None
     
@@ -454,7 +446,7 @@ def val_loop(args, model, loader, device, criterion, rank):
             bag_onehot_labels.extend(label_onehot)
             wsi_names.extend(wsi_name)
             test_logits = test_logits.detach()
-            test_loss = criterion(test_logits.view(batch_size,-1).contiguous(), label)    
+            test_loss = criterion(test_logits.view(batch_size,-1).contiguous(), label)     
             
             if args.loss in ['ce']:
                 if args.num_classes == 2:
@@ -493,18 +485,16 @@ def val_loop(args, model, loader, device, criterion, rank):
 def broadcast_state_dict(state_dict, device, rank):
     """广播状态字典到所有进程"""
     if rank == 0:
-        # 主进程发送状态字典
         objects = [state_dict]
         dist.broadcast_object_list(objects, src=0)
         return state_dict
     else:
-        # 其他进程接收状态字典
         objects = [None]
         dist.broadcast_object_list(objects, src=0)
         return objects[0]
 
 def parse_args():
-    """解析命令行参数"""
+    # ... (该函数与你原来的代码完全相同，无需修改)
     parser = argparse.ArgumentParser(description='MIL Training Script')
 
     # Dataset 
@@ -518,7 +508,7 @@ def parse_args():
     parser.add_argument('--patch_drop', default=1, type=float, help='if use patch_drop')
     parser.add_argument('--patch_pad', default=1, type=float, help='if use patch_padding')
     
-    # Dataset aug    
+    # Dataset aug      
     parser.add_argument('--imbalance_sampler', default=0, type=float, help='if use imbalance_sampler')
     parser.add_argument('--fine_concat', default=0, type=int, help='flatten the fine feature')
 
@@ -586,7 +576,6 @@ def parse_args():
     
     args = parser.parse_args()
     
-    # 原有的数据集配置逻辑...
     if args.datasets == 'gc_v15':
         args.train_label_path = '/data/wsi/TCTGC50k-labels/6_labels/TCTGC50k-v15-train.csv'
         args.test_label_path = '/data/wsi/TCTGC50k-labels/6_labels/TCTGC50k-v15-test.csv'
