@@ -319,6 +319,7 @@ class AsymmetricLossOptimized(nn.Module):
 
         return -self.loss.sum(dim=1).mean()
 
+
 class BuildClsLoss(nn.Module):
     def __init__(self, args):
         super(BuildClsLoss, self).__init__()
@@ -336,6 +337,7 @@ class BuildClsLoss(nn.Module):
             criterion = AsymmetricLossOptimized(gamma_neg=args.gamma_neg, gamma_pos=args.gamma_pos, ft_cls=None)
         elif args.loss == 'focal':
             criterion = BinaryFocalLoss(alpha=args.alpha, gamma=args.gamma)
+            
         self.criterion = criterion
         self.args = args
         
