@@ -299,8 +299,70 @@ def evaluation_cancer_sigmoid_cascade(gt_logtis, pred_logits, class_labels, outp
     return roc_auc, accuracys, recalls, precisions, fscores, thresholds, \
         accuracys_bi, recalls_bi, precisions_bi, fscores_bi, \
         cancer_matrix, cancer_matrix_bi
+
+
+def evaluation_cancer_sigmoid_cascade_binary(gt_logtis, pred_logits, class_labels, output_path):
+    """
+    参数：
+        gt_logtis (list): [N, num_class], 真实标签
+        pred_logits (tensor): [N, num_class], 每个样本的类别概率
+        class_labels (list): ['NILM', 'ASC-US', 'LSIL', 'ASC-H', 'HSIL', 'AGC', 'BV', 'M', 'T'],  类别标签, 
+        wsi_names (list): N, WSI名称,方便打印错误信息
+    返回：
+        roc_auc_macro (ndarray): 多类别ROC_AUC
+        accuracy (float): Micro 准确率
+        recall (ndarray): Macro 阳性召回率 len = 8 or 4 
+        precision (ndarray): Macro 阳性精确率
+        fscore (ndarray): Macro F1分数
+    """
+    # 对于多类别样本 拆分成多个样本，预测概率将正确的其他类别概率设为0
     
-def evaluation_cancer_softmax(gt_logtis, pred_logits, class_labels, wsi_names, threshold):
+    bag_labels = []
+    new_pred_logits = []
+    
+    for i, gt_logit in enumerate(gt_logtis):
+        gt_labels = torch.where(gt_logit == 1)[0]
+        if len(gt_labels) > 1:
+            assert f"ground truth multi labels"
+        else:
+            bag_labels.append(gt_labels[0])
+            new_pred_logits.append(pred_logits[i])
+            
+    bag_labels = np.array(bag_labels)
+    bag_logits = np.array(new_pred_logits)
+    
+    bag_labels_cancer, bag_logits_cancer, class_labels_cancer = bag_labels, bag_logits, class_labels
+    bag_pred_cancer_onehot = np.zeros_like(bag_logits_cancer)
+
+    threshold_neg = 0.98
+    for j in range(bag_logits_cancer.shape[0]):
+        if bag_logits_cancer[j, 0] > threshold_neg:
+            bag_pred_cancer_onehot[j, 0] = 1
+        else:
+            max_logit_index = np.argmax(bag_logits_cancer[j,1:]) 
+            bag_pred_cancer_onehot[j, max_logit_index+1] = 1 
+            
+    bag_pred_cancer = np.argmax(bag_pred_cancer_onehot, axis=-1) # [N_cancer,]
+    gt_binary = np.where(bag_labels_cancer != 0, 1, 0)
+    pred_binary = np.where(bag_pred_cancer != 0, 1, 0)
+    accuracys_bi, recalls_bi, precisions_bi, fscores_bi = cal_evaluation(gt_binary, pred_binary)
+    cancer_matrix_bi = confusion_matrix(gt_binary, pred_binary, ['neg', 'pos'])
+    roc_bi = roc_auc_score(gt_binary, 1-bag_logits_cancer[:, 0])
+    
+    try:
+        with pd.ExcelWriter(output_path) as writer:
+            save_metrics_to_excel([roc_bi], accuracys_bi, recalls_bi, precisions_bi, fscores_bi, [threshold_neg], cancer_matrix_bi, ['neg', 'pos'], writer)
+        print(f"Metrics and confusion matrix saved to {output_path}")
+    except Exception as e:
+        print(f"Error saving to Excel file {output_path}: {e}")
+    
+    print('roc', 'acc', 'recall', 'prec', 'fs')
+    print(roc_bi, accuracys_bi, recalls_bi, precisions_bi, fscores_bi)
+    return None, None, None, None, None, None, \
+        accuracys_bi, recalls_bi, precisions_bi, fscores_bi, \
+        None, cancer_matrix_bi
+    
+def evaluation_cancer_softmax(gt_logtis, pred_logits, class_labels, output_path):
     """
     参数：
         bag_labels (list): [N], 真实标签
@@ -317,7 +379,7 @@ def evaluation_cancer_softmax(gt_logtis, pred_logits, class_labels, wsi_names, t
     """
     # 对于多类别样本 拆分成多个样本，预测概率将正确的其他类别概率设为0
 
-    assert len(class_labels) == 6 or len(class_labels) == 5 or len(class_labels) == 9
+    assert len(class_labels) == 6 or len(class_labels) == 5 or len(class_labels) == 2
     gt_logtis = np.array(gt_logtis)
     bag_logits = np.array(pred_logits)
     bag_labels = np.argmax(gt_logtis, axis=1)
@@ -333,20 +395,24 @@ def evaluation_cancer_softmax(gt_logtis, pred_logits, class_labels, wsi_names, t
     accuracys, recalls, precisions, fscores = cal_evaluation(bag_labels, pred_labels)
     print('[INFO] confusion matrix for cancer labels:')
     cancer_matrix = confusion_matrix(bag_labels, pred_labels, class_labels)
-    print('fscores len' + str(len(fscores)))
     # 评估微生物感染
     microbial_matrix = None
+    try:
+        with pd.ExcelWriter(output_path) as writer:
+            save_metrics_to_excel(roc_auc, accuracys, recalls, precisions, fscores, [0], cancer_matrix, ['neg', 'pos'], writer)
+        print(f"Metrics and confusion matrix saved to {output_path}")
+    except Exception as e:
+        print(f"Error saving to Excel file {output_path}: {e}")
     return roc_auc, accuracys, recalls, precisions, fscores, thresholds, cancer_matrix, microbial_matrix
 
 
 def cal_evaluation(bag_labels, pred_labels):
     n_classes = max(bag_labels)+1
     accuracy = accuracy_score(bag_labels, pred_labels)
-    accuracys = [accuracy]
     recalls = recall_score(bag_labels, pred_labels, average=None, labels=list(range(1,n_classes)))
     precisions = precision_score(bag_labels, pred_labels, average=None, labels=list(range(1,n_classes)))
     fscores = f1_score(bag_labels, pred_labels, average=None, labels=list(range(1,n_classes)))
-    return accuracys, recalls, precisions, fscores
+    return [accuracy], recalls, precisions, fscores
     
 def confusion_matrix(bag_labels, bag_pred, class_labels):
     """
@@ -424,7 +490,6 @@ def save_metrics_to_excel(roc_auc: List[float], accuracies: List[float], recalls
         class_labels (list): 类别标签，例如 ['NILM', 'ASC-US', ...] 或 ['Negative', 'Positive']。
         output_excel_path (str): 输出Excel文件的路径。
     """
-    
     # 判断是否为二分类：class_labels长度为2，或阳性指标长度为1
     is_binary = len(class_labels) == 2 or len(roc_auc) == 1
     
@@ -441,6 +506,7 @@ def save_metrics_to_excel(roc_auc: List[float], accuracies: List[float], recalls
     # ----------------------------------------------------
     # 阳性类别的名称 (Class 1 到 N)
     class_names = class_labels[1:]
+    print(len(class_names), len(roc_auc_p), len(recalls_p), len(precisions_p), len(fscores_p), len(thresholds_p), len(accuracies_p))
     results = {
         "Class": class_names,
         "AUC (%)": roc_auc_p,

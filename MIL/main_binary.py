@@ -33,7 +33,7 @@ from timm.utils import AverageMeter, dispatch_clip_grad
 from timm.models import model_parameters
 
 # === 全域設定 ===
-# 定義標籤與ID的對應關係
+# 定義標籤與ID的對應關係 (This remains for initial mapping)
 ID_TO_LABEL = {
     0: 'nilm', 1: 'ascus', 2: 'asch', 3: 'lsil', 
     4: 'hsil', 5: 'agc', 6: 't', 7: 'm', 8: 'bv'
@@ -91,6 +91,14 @@ def prepare_metadata(args):
     df_test = pd.read_csv(args.test_label_path)
     test_wsi_names = df_test['wsi_name'].values
     test_wsi_labels = df_test['wsi_label'].map(LABEL_TO_ID).values
+    
+    # === MODIFICATION START: Convert multi-class labels to binary ===
+    # Rule: Label 0 (nilm) remains 0, all other labels become 1.
+    if args.num_classes == 2:
+        train_wsi_labels = (train_wsi_labels > 0).astype(int)
+        test_wsi_labels = (test_wsi_labels > 0).astype(int)
+        print_and_log("Info: Labels converted to binary format (0: Normal, 1: Abnormal).", args.log_file, args.no_log)
+    # === MODIFICATION END ===
     
     return train_wsi_names, train_wsi_labels, train_cluster_labels, test_wsi_names, test_wsi_labels
 
@@ -200,16 +208,12 @@ def run_training_process(rank, world_size, args,
     
     criterions = {
         'cls': BuildClsLoss(args),
-        'cls_neg': nn.BCEWithLogitsLoss(),
-        'gh': nn.CrossEntropyLoss(),
         # 'com': CompactnessLoss() # 假設 CompactnessLoss 不需要特殊參數
     }
     
     # 定義各損失的權重
     loss_weights = {
         'cls': 1.0, # 主要的分類損失權重通常為 1
-        'cls_neg': 1.0, 
-        'gh': 0.5
         # 'com': args.com_loss_weight
     }
     
@@ -254,7 +258,7 @@ def run_training_process(rank, world_size, args,
         print_and_log(f'\rEpoch [{epoch+1}/{args.num_epoch}] train loss: {total_loss:.1E}, time: {train_time_meter.val:.3f}({train_time_meter.avg:.3f})', 
                       args.log_file, args.no_log)
         # print(f'\rEpoch [{epoch+1}/{args.num_epoch}] train loss: {total_loss:.1E}, time: {train_time_meter.val:.3f}({train_time_meter.avg:.3f})')
-                
+                  
         # 只有主進程儲存模型
         if rank == 0:
             model_state_dict = model.module.state_dict() if world_size > 1 else model.state_dict()
@@ -312,9 +316,7 @@ def training_loop(args, model, loader, optimizer, device, amp_autocast, criterio
             # 分別計算各個損失
             losses = {}
             # 分類損失
-            # losses['cls'] = criterions['cls'](train_logits, label)
-            if args.loss_neg:
-                losses['cls_neg'] = criterions['cls_neg'](train_logits[:, 0], (label == 0).float())
+            losses['cls'] = criterions['cls'](train_logits, label)
 
             # 根據權重加總所有損失
             total_loss = sum(losses[name] * loss_weights[name] for name in losses)
@@ -375,6 +377,7 @@ def validation_loop(args, model, loader, device, criterions, loss_weights, rank)
             
             logits = model(bag)
             loss = criterions['cls'](logits, label)
+            
             loss_meter.update(loss.item(), batch_size)
             
             label_onehot = one_hot(label, num_classes=args.num_classes).cpu()
@@ -388,14 +391,10 @@ def validation_loop(args, model, loader, device, criterions, loss_weights, rank)
                 probabilities = torch.sigmoid(logits)
             all_logits.extend(probabilities.cpu().numpy())
 
-
     # 計算並儲存評估指標
     output_excel_path = os.path.join(args.model_path, 'metrics.xlsx')
     
-    eval_func = evaluation_cancer_sigmoid if (args.loss not in ['ce'] and args.multi_label) else evaluation_cancer_softmax
-    if args.loss_neg:
-        # eval_func = evaluation_cancer_sigmoid_cascade if (args.loss not in ['ce'] and args.multi_label) else evaluation_cancer_softmax
-        eval_func = evaluation_cancer_sigmoid_cascade_binary if (args.loss not in ['ce'] and args.multi_label) else evaluation_cancer_softmax
+    eval_func = evaluation_cancer_sigmoid_cascade_binary if (args.loss not in ['ce'] and args.multi_label) else evaluation_cancer_softmax
     
     eval_func(all_onehot_labels, all_logits, args.class_labels, output_excel_path)
     
@@ -451,7 +450,9 @@ def parse_args():
     parser.add_argument('--datasets', default='gc_v15', type=str, help='[gc_v15, gc_10k]')
     parser.add_argument('--dataset_root', default='/data/wsi/TCTGC50k-features/gigapath-coarse', type=str)
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix dataloader random seed')
-    parser.add_argument('--num_classes', default=6, type=int)
+    # === MODIFICATION START: Changed default number of classes to 2 ===
+    parser.add_argument('--num_classes', default=2, type=int)
+    # === MODIFICATION END ===
     
     # Augment
     parser.add_argument('--patch_drop', default=1.0, type=float)
@@ -521,13 +522,23 @@ def parse_args():
         args.train_label_path = '/data/wsi/TCTGC50k-labels/6_labels/TCTGC50k-v15-train.csv'
         args.test_label_path = '/data/wsi/TCTGC50k-labels/6_labels/TCTGC50k-v15-test.csv'
         args.train_cluster_path = f'../datatools/TCTGC50k/cluster/kmeans_{args.kmeans_k}.csv'
-        args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
+        # === MODIFICATION START: Update class_labels to match binary classification ===
+        if args.num_classes == 2:
+            args.class_labels = ['Normal', 'Abnormal']
+        else:
+            args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
+        # === MODIFICATION END ===
         args.memory_limit_ratio = 0.4
     elif args.datasets == 'gc_10k':
         args.train_label_path = '/data/wsi/TCTGC10k-labels/6_labels/TCTGC10k-v15-train.csv'
         args.test_label_path = '/data/wsi/TCTGC10k-labels/6_labels/TCTGC10k-v15-test.csv'
         args.train_cluster_path = f'../datatools/TCTGC10k/cluster/kmeans_{args.kmeans_k}.csv'
-        args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
+        # === MODIFICATION START: Update class_labels to match binary classification ===
+        if args.num_classes == 2:
+            args.class_labels = ['Normal', 'Abnormal']
+        else:
+            args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
+        # === MODIFICATION END ===
         args.memory_limit_ratio = 0
     
     # 設定輸出路徑
