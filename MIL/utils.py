@@ -506,7 +506,6 @@ def save_metrics_to_excel(roc_auc: List[float], accuracies: List[float], recalls
     # ----------------------------------------------------
     # 阳性类别的名称 (Class 1 到 N)
     class_names = class_labels[1:]
-    print(len(class_names), len(roc_auc_p), len(recalls_p), len(precisions_p), len(fscores_p), len(thresholds_p), len(accuracies_p))
     results = {
         "Class": class_names,
         "AUC (%)": roc_auc_p,
