@@ -73,20 +73,23 @@ def prepare_metadata(args):
         raise ValueError(f"不支援的資料集: {args.datasets}")
 
     df_train = pd.read_csv(args.train_label_path)
-    df_cluster = pd.read_csv(args.train_cluster_path)
     
     # 將聚類標籤合併到訓練 DataFrame
-    df_train = df_train.merge(
-        df_cluster[['wsi_name', 'cluster_label']], 
-        on='wsi_name', 
-        how='left'
-    )
+    if args.train_cluster_path:
+        df_cluster = pd.read_csv(args.train_cluster_path)
+        df_train = df_train.merge(
+            df_cluster[['wsi_name', 'cluster_label']], 
+            on='wsi_name', 
+            how='left'
+        )
+        train_cluster_labels = df_train['cluster_label'].apply(
+            lambda x: [int(i) for i in x.split()]
+        ).values
+    else:
+        train_cluster_labels = None
     
     train_wsi_names = df_train['wsi_name'].values
     train_wsi_labels = df_train['wsi_label'].map(LABEL_TO_ID).values
-    train_cluster_labels = df_train['cluster_label'].apply(
-        lambda x: [int(i) for i in x.split()]
-    ).values
     
     df_test = pd.read_csv(args.test_label_path)
     test_wsi_names = df_test['wsi_name'].values
@@ -129,7 +132,7 @@ def run_training_process(rank, world_size, args,
     collate_fn = default_collate
     amp_autocast = torch.cuda.amp.autocast if args.amp else suppress
     
-    train_cluster_labels_tensor = [torch.tensor(labels) for labels in train_cluster_labels]
+    train_cluster_labels_tensor = [torch.tensor(labels) for labels in train_cluster_labels] if train_cluster_labels is not None else None
 
     # ---> 資料載入 (DataLoader)
     # 設定資料增強
@@ -270,7 +273,9 @@ def run_training_process(rank, world_size, args,
             }
             if (epoch + 1) % args.save_epoch == 0 or (epoch + 1) == args.num_epoch:
                 torch.save(checkpoint, os.path.join(args.model_path, f'epoch_{epoch+1}_model.pt'))
+            torch.save(checkpoint, os.path.join(args.model_path, 'ckp.pt'))
 
+        
     # ---> 訓練結束後的最終儲存與評估
     if rank == 0:
         torch.save(checkpoint, os.path.join(args.model_path, 'ckp.pt'))
@@ -447,7 +452,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='MIL Training Script')
 
     # Dataset 
-    parser.add_argument('--datasets', default='gc_v15', type=str, help='[gc_v15, gc_10k]')
+    parser.add_argument('--datasets', default='gc_v15', type=str, help='[gc_v15, gc_10k, gc_2625]')
     parser.add_argument('--dataset_root', default='/data/wsi/TCTGC50k-features/gigapath-coarse', type=str)
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix dataloader random seed')
     # === MODIFICATION START: Changed default number of classes to 2 ===
@@ -528,19 +533,32 @@ def parse_args():
         else:
             args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
         # === MODIFICATION END ===
-        args.memory_limit_ratio = 0.4
+        args.memory_limit_ratio = 0
     elif args.datasets == 'gc_10k':
         args.train_label_path = '/data/wsi/TCTGC10k-labels/6_labels/TCTGC10k-v15-train.csv'
         args.test_label_path = '/data/wsi/TCTGC10k-labels/6_labels/TCTGC10k-v15-test.csv'
-        args.train_cluster_path = f'../datatools/TCTGC10k/cluster/kmeans_{args.kmeans_k}.csv'
-        # === MODIFICATION START: Update class_labels to match binary classification ===
+        args.train_cluster_path = None
+        # args.train_cluster_path = f'../datatools/TCTGC10k/cluster/kmeans_{args.kmeans_k}.csv'
         if args.num_classes == 2:
             args.class_labels = ['Normal', 'Abnormal']
         else:
             args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
         # === MODIFICATION END ===
         args.memory_limit_ratio = 0
-    
+    elif args.datasets == 'gc_2625':
+        args.train_label_path = '/data/wsi/TCTGC2625-labels/6_labels/TCTGC-2625-train.csv'
+        args.test_label_path = '/data/wsi/TCTGC2625-labels/6_labels/TCTGC-2625-test.csv'
+        args.dataset_root = '/home1/wsi/gc-all-features/frozen/gigapath1'
+        # TODO
+        args.train_cluster_path = None
+        # === MODIFICATION START: Update class_labels to match binary classification ===
+        if args.num_classes == 2:
+            args.class_labels = ['Normal', 'Abnormal']
+        else:
+            args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
+        args.memory_limit_ratio = 0
+            
+            
     # 設定輸出路徑
     args.model_path = os.path.join(args.output_path, args.project, args.title)
     args.log_file = os.path.join(args.model_path, 'log.txt')

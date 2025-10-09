@@ -165,7 +165,9 @@ class C16DatasetSharedMemory(Dataset):
             file_name = file_names[idx]
             try:
                 file_path = os.path.join(pt_dir, file_name + '.pt')
-                data = torch.load(file_path, map_location='cpu', weights_only=False)
+                with open(file_path, 'rb') as f:
+                    data = torch.load(f, map_location='cpu', weights_only=False)
+                    f.close()
                 data.share_memory_() # 关键步骤
                 shared_data[idx] = data
             except Exception as e:

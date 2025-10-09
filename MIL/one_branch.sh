@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 set -x
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=2
 
 # K=4 # 4 8 16 32
 # ratio=0.1
 # min=20
-dataset=gc_10k # gc_10k gc_v15
-mil_method=abmil # transmil abmil wsi_vit
+dataset=gc_10k # gc_10k gc_v15 gc_2625
+mil_method=transmil # transmil abmil wsi_vit
 patch_drop=0
 patch_pad=0
 weight=1.
 batch_size=1 # 32 1
-warmup=200
-epoch=200
-loss=ce # ce bce
+warmup=10
+epoch=15
+loss=bce # ce bce
 frozen=0
 multi_label=0
 world_size=1 # 4 1

@@ -334,13 +334,13 @@ def evaluation_cancer_sigmoid_cascade_binary(gt_logtis, pred_logits, class_label
     bag_labels_cancer, bag_logits_cancer, class_labels_cancer = bag_labels, bag_logits, class_labels
     bag_pred_cancer_onehot = np.zeros_like(bag_logits_cancer)
 
-    threshold_neg = 0.98
+    threshold_neg = 0.5
     for j in range(bag_logits_cancer.shape[0]):
         if bag_logits_cancer[j, 0] > threshold_neg:
             bag_pred_cancer_onehot[j, 0] = 1
         else:
             max_logit_index = np.argmax(bag_logits_cancer[j,1:]) 
-            bag_pred_cancer_onehot[j, max_logit_index+1] = 1 
+            bag_pred_cancer_onehot[j, max_logit_index+1] = 1
             
     bag_pred_cancer = np.argmax(bag_pred_cancer_onehot, axis=-1) # [N_cancer,]
     gt_binary = np.where(bag_labels_cancer != 0, 1, 0)
@@ -566,6 +566,14 @@ def save_logits(bag_onehot_labels, bag_logits, class_labels, wsi_names, output_p
         "bag_label": bag_onehot_labels,
         "bag_logits": list(bag_logits)  # 将 logits 数组转换为列表
     }
+    bag_labels = np.argmax(bag_onehot_labels, axis=1)
+    bag_pred = np.argmax(bag_logits, axis=1)
+    error_path = os.path.join(os.path.dirname(output_path), "error_log.txt")
+    with open(error_path, "w") as f:
+        for i in range(len(bag_labels)):
+            if bag_labels[i] != bag_pred[i] and bag_labels[i] != 0:
+                f.write(f"Error: {wsi_names[i]} label: {class_labels[bag_labels[i]]} \n pred: {bag_logits[i]}\n")
+        f.close()
     
     df = pd.DataFrame(data)
     # 确保输出目录存在
