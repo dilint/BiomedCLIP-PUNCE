@@ -384,6 +384,9 @@ def evaluation_cancer_softmax(gt_logtis, pred_logits, class_labels, output_path)
     bag_logits = np.array(pred_logits)
     bag_labels = np.argmax(gt_logtis, axis=1)
     pred_labels = np.argmax(bag_logits, axis=1)
+    # pred_labels = bag_logits[:, 1] > 0.5
+    # pred_labels = (pred_labels).astype(int)
+
     n_cancer_class = bag_logits.shape[1]
     print(gt_logtis.shape)
     print(bag_logits.shape)
@@ -568,7 +571,10 @@ def save_logits(bag_onehot_labels, bag_logits, class_labels, wsi_names, output_p
     }
     bag_labels = np.argmax(bag_onehot_labels, axis=1)
     bag_pred = np.argmax(bag_logits, axis=1)
-    error_path = os.path.join(os.path.dirname(output_path), "error_log.txt")
+    if 'train' in output_path:
+        error_path = os.path.join(os.path.dirname(output_path), "train_error_log.txt")
+    else:
+        error_path = os.path.join(os.path.dirname(output_path), "test_error_log.txt")
     with open(error_path, "w") as f:
         for i in range(len(bag_labels)):
             if bag_labels[i] != bag_pred[i] and bag_labels[i] != 0:

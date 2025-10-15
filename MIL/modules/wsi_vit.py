@@ -107,7 +107,7 @@ class MultiHeadAttentionPool(torch.nn.Module):
         return torch.sum(out, dim=0, keepdim=True)
 
 class WSI_ViT(nn.Module):
-    def __init__(self, input_dim=256, num_classes=6, dim=256, depth=1, heads=8, mlp_dim=256, dim_head = 64, dropout=0.1, emb_dropout=0.1, for_cls=True, use_tome=False):
+    def __init__(self, input_dim=256, dim=256, depth=1, heads=8, mlp_dim=256, dim_head = 64, dropout=0.1, use_tome=False):
         super().__init__()
         #assert (seq_len % patch_size) == 0
 
@@ -153,14 +153,11 @@ if __name__ == '__main__':
 
     v = ViT(
         input_dim = 256,
-        num_classes = 10,
         dim = 256,
         depth = 6,
         heads = 8,
         mlp_dim = 512,
         dropout = 0.1,
-        emb_dropout = 0.1,
-        for_cls=True
     )
 
     time_series = torch.randn(1, 100, 256)

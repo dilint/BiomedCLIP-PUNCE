@@ -34,7 +34,7 @@ class MIL(nn.Module):
         elif mil == 'abmil':
             self.online_encoder = Abmil(input_dim=mlp_dim,act=act)
         elif mil == 'wsi_vit':
-            self.online_encoder = WSI_ViT(input_dim=mlp_dim, dim=mlp_dim)
+            self.online_encoder = WSI_ViT(input_dim=mlp_dim, dim=mlp_dim, depth=4)
         elif mil == 'linear':
             self.patch_to_emb = nn.Identity()
             self.online_encoder = nn.Identity()
@@ -44,7 +44,7 @@ class MIL(nn.Module):
 
         self.predictor = nn.Linear(mlp_dim,n_classes)
 
-    def forward(self, x, return_attn=False):
+    def forward(self, x, return_attn=False, return_feat=False):
         x = self.patch_to_emb(x)
         x = self.dp(x)
         # ps = x.size(1)
@@ -54,12 +54,14 @@ class MIL(nn.Module):
         else:
             x = self.online_encoder(x)
 
-        x = self.predictor(x)
+        prob = self.predictor(x)
 
         if return_attn:
-            return x,attn
+            return prob, attn
+        elif return_feat:
+            return prob, x
         else:
-            return x
+            return prob
         
 class MIL_MTL(MIL):
     def __init__(self, num_classes, num_task, input_dim=1024, mlp_dim=512,n_classes=2,mil='abmil',dropout=0.25,head=8,act='gelu'):

@@ -182,10 +182,11 @@ def AP_loss(logits,targets):
 class BinaryFocalLoss(nn.Module):
     def __init__(self, alpha=0.25, gamma=2.0, reduction='mean', eps=1e-8):
         """
-        alpha: 类别权重（平衡正负样本，建议 0.25 用于正样本少的场景）
-        gamma: 难易样本调节因子（越大，对难样本的关注越高）
+        一個更穩健的 Focal Loss 實現
+        alpha: 類別權重
+        gamma: 難易樣本調節因子
         reduction: 'mean'/'sum'/'none'
-        eps: 数值稳定性
+        eps: 用於數值穩定性的小值
         """
         super().__init__()
         self.alpha = alpha
@@ -194,21 +195,30 @@ class BinaryFocalLoss(nn.Module):
         self.eps = eps
 
     def forward(self, inputs, targets):
-        # 计算概率
-        probs = torch.sigmoid(inputs)
-        bce_loss = F.binary_cross_entropy_with_logits(
-            inputs, targets, reduction='none'
-        )
+        # inputs: 模型的原始 logits
+        # targets: 真實標籤
         
-        # Focal Weight: (1 - p_t)^gamma
-        p_t = probs * targets + (1 - probs) * (1 - targets)  # p if t=1 else 1-p
+        # 1. 計算概率，這是潛在的不穩定源頭，但無法避免
+        probs = torch.sigmoid(inputs)
+        
+        # 2. 為 BCE 計算準備一個被 "clamp" 過的 probs，防止 log(0)
+        probs_clamp = probs.clamp(self.eps, 1.0 - self.eps)
+        
+        # 3. 計算標準的 BCE Loss (來自 clamp 過的 probs)
+        bce_loss = F.binary_cross_entropy(probs_clamp, targets, reduction='none')
+        
+        # 4. 計算 p_t (來自原始的、未 clamp 的 probs)
+        # 這樣可以更好地反映模型原始的置信度
+        p_t = probs * targets + (1 - probs) * (1 - targets)
+        
+        # 5. 計算 focal weight
         focal_weight = (1 - p_t).pow(self.gamma)
         
-        # Alpha 权重
+        # 6. 計算 alpha weight
         alpha_weight = self.alpha * targets + (1 - self.alpha) * (1 - targets)
         
-        # 组合损失
-        loss = focal_weight * alpha_weight * bce_loss
+        # 7. 組合最終的 loss
+        loss = alpha_weight * focal_weight * bce_loss
         
         if self.reduction == 'mean':
             return loss.mean()
@@ -358,6 +368,25 @@ class BuildClsLoss(nn.Module):
         assert not torch.isnan(logit_loss)
         return logit_loss
     
+    
+class GHLoss(nn.Module):
+    def __init__(self, l, sinkhorn_iterations):
+        super().__init__()
+        self.l = l
+        self.sinkhorn_iterations = sinkhorn_iterations
+
+    def loss(self, x, y, stat):
+        gamma = 0.1
+        q_x = sinkhorn(x, self.l, self.sinkhorn_iterations, stat)
+        q_y = sinkhorn(y, self.l, self.sinkhorn_iterations, stat)
+        return  -torch.mean(torch.sum(q_x * F.log_softmax(y/gamma, dim=1), dim=1))-\
+                torch.mean(torch.sum(q_y * F.log_softmax(x/gamma, dim=1), dim=1))
+
+    def forward(self, c1, c2, stat=None):
+        loss = self.loss(c1, c2, stat)
+
+        return loss
+
 @torch.no_grad()
 def sinkhorn(out, l, sinkhorn_iterations, stat=None):
 
