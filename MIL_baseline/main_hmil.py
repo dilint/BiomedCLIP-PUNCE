@@ -5,7 +5,6 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.utils.data import DataLoader, RandomSampler, DistributedSampler, default_collate
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.nn.functional import one_hot
 
 import numpy as np
 import pandas as pd
@@ -16,9 +15,9 @@ from contextlib import suppress
 
 # 匯入自定義模組
 from dataloader import C16DatasetSharedMemory, ClassBalancedDataset
-from model import MIL
-from loss import BuildClsLoss
+from models import MIL
 from augments import PatchFeatureAugmenter
+from loss import BuildClsLoss
 from utils import (
     print_and_log, 
     seed_torch, 
@@ -30,10 +29,10 @@ from utils import (
     save_logits
 )
 from timm.utils import AverageMeter, dispatch_clip_grad
-from timm.models import model_parameters
+from trainer.hmil_trainer import hmil_training_loop, hmil_validation_loop
 
-# === 全域設定 ===
-# 定義標籤與ID的對應關係 (This remains for initial mapping)
+
+
 ID_TO_LABEL = {
     0: 'nilm', 1: 'ascus', 2: 'asch', 3: 'lsil', 
     4: 'hsil', 5: 'agc', 6: 't', 7: 'm', 8: 'bv'
@@ -65,16 +64,33 @@ def broadcast_state_dict(state_dict, device, rank):
 
 # --- 資料準備 ---
 
+import pandas as pd
+import numpy as np
+from utils import print_and_log # 假設 print_and_log 從 utils 匯入
+import os 
+from typing import Any # 為了 gen_mapping_dict
+
+ID_TO_LABEL = {
+    0: 'nilm', 1: 'ascus', 2: 'asch', 3: 'lsil', 
+    4: 'hsil', 5: 'agc', 6: 't', 7: 'm', 8: 'bv'
+}
+LABEL_TO_ID = {v: k for k, v in ID_TO_LABEL.items()}
+
+def custom_collate_fn(batch):
+    cell_images, patient_labels, third_elements = zip(*batch)
+    return list(cell_images), list(patient_labels), list(third_elements)
+
 def prepare_metadata(args):
     """
-    從 CSV 檔案中讀取並準備訓練和測試集的元數據。
+    從 CSV 讀取元數據。
+    使用硬編碼規則 (label > 0) 創建 [N, 2] 分層標籤。
+    同時動態生成 args.fine_to_coarse_map 和 args.n_class 供後續使用。
     """
     if 'gc' not in args.datasets.lower():
         raise ValueError(f"不支援的資料集: {args.datasets}")
 
     df_train = pd.read_csv(args.train_label_path)
     
-    # 將聚類標籤合併到訓練 DataFrame
     if args.train_cluster_path:
         df_cluster = pd.read_csv(args.train_cluster_path)
         df_train = df_train.merge(
@@ -89,22 +105,18 @@ def prepare_metadata(args):
         train_cluster_labels = None
     
     train_wsi_names = df_train['wsi_name'].values
-    train_wsi_labels = df_train['wsi_label'].map(LABEL_TO_ID).values
+    train_wsi_labels_fine = df_train['wsi_label'].map(LABEL_TO_ID).values
     
     df_test = pd.read_csv(args.test_label_path)
     test_wsi_names = df_test['wsi_name'].values
-    test_wsi_labels = df_test['wsi_label'].map(LABEL_TO_ID).values
+    test_wsi_labels_fine = df_test['wsi_label'].map(LABEL_TO_ID).values
+    train_wsi_labels_coarse = (train_wsi_labels_fine > 0).astype(int)
+    test_wsi_labels_coarse = (test_wsi_labels_fine > 0).astype(int)
+    train_wsi_labels = np.column_stack((train_wsi_labels_coarse, train_wsi_labels_fine))
+    test_wsi_labels = np.column_stack((test_wsi_labels_coarse, test_wsi_labels_fine))
     
-    # === MODIFICATION START: Convert multi-class labels to binary ===
-    # Rule: Label 0 (nilm) remains 0, all other labels become 1.
-    if args.num_classes == 2:
-        train_wsi_labels = (train_wsi_labels > 0).astype(int)
-        test_wsi_labels = (test_wsi_labels > 0).astype(int)
-        print_and_log("Info: Labels converted to binary format (0: Normal, 1: Abnormal).", args.log_file, args.no_log)
-    # === MODIFICATION END ===
-    
+    print_and_log("Info: Labels converted to hierarchical [N, 2] format (Coarse, Fine).", args.log_file, args.no_log)
     return train_wsi_names, train_wsi_labels, train_cluster_labels, test_wsi_names, test_wsi_labels
-
 # --- 核心訓練與評估流程 ---
 
 def run_training_process(rank, world_size, args, 
@@ -129,7 +141,7 @@ def run_training_process(rank, world_size, args,
     print_and_log(f'Process {rank}: Dataset: {args.datasets}', args.log_file, args.no_log)
 
     # ---> 初始化設定
-    collate_fn = default_collate
+    collate_fn = custom_collate_fn
     amp_autocast = torch.cuda.amp.autocast if args.amp else suppress
     
     train_cluster_labels_tensor = [torch.tensor(labels) for labels in train_cluster_labels] if train_cluster_labels is not None else None
@@ -181,14 +193,15 @@ def run_training_process(rank, world_size, args,
     if rank == 0:
         test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=0, collate_fn=collate_fn)
 
-    # ---> 模型、損失函數、優化器設定
+    
     model = MIL(
-        input_dim=args.input_dim, mlp_dim=1024, n_classes=args.num_classes,
-        mil=args.mil_method, dropout=args.dropout
+        n_classes=args.num_classes, 
+        mil=args.mil_method
     ).to(device)
     
     if world_size > 1:
-        model = DDP(model, device_ids=[rank], find_unused_parameters=False)
+        # HMIL 可能需要 find_unused_parameters=True，取決於模型實現
+        model = DDP(model, device_ids=[rank], find_unused_parameters=True) 
 
     # 載入預訓練權重
     if args.pretrain:
@@ -217,7 +230,7 @@ def run_training_process(rank, world_size, args,
         # 'com': CompactnessLoss() # 假設 CompactnessLoss 不需要特殊參數
     }
     
-    # 定義各損失的權重
+    # 'validation_loop' 也不使用 'loss_weights'，但為保持一致性，我們保留
     loss_weights = {
         'cls': 1.0, # 主要的分類損失權重通常為 1
         # 'com': args.com_loss_weight
@@ -245,7 +258,8 @@ def run_training_process(rank, world_size, args,
             checkpoint = torch.load(os.path.join(args.model_path, 'ckp.pt'), weights_only=False)
             model_to_load = model.module if world_size > 1 else model
             model_to_load.load_state_dict(checkpoint['model'])
-            validation_loop(args, model, test_loader, device, criterions, loss_weights, rank)
+            # **** 警告: validation_loop 可能與 HMIL 模型輸出不相容 ****
+            hmil_validation_loop(args, model, test_loader, device, criterions, loss_weights, rank)
             # validation_loop(args, model, train_loader, device, criterions, loss_weights, rank, if_train_data=True)
         return
 
@@ -255,17 +269,24 @@ def run_training_process(rank, world_size, args,
         if world_size > 1:
             train_loader.sampler.set_epoch(epoch)
         
-        train_loss, start_time, end_time = training_loop(
+        # === MODIFICATION START: 'criterions' 和 'loss_weights' 不再傳遞 ===
+        # 因為 'training_loop' 內部將實作 HMIL 專用的損失計算
+        # 'training_loop' 現在將返回一個包含多個損失的字典
+        train_loss, start_time, end_time = hmil_training_loop(
             args, model, train_loader, optimizer, device, 
-            amp_autocast, criterions, loss_weights, scheduler, epoch, rank
+            amp_autocast, scheduler, epoch, rank
         )
+        # === MODIFICATION END ===
+        
         train_time_meter.update(end_time - start_time)
         
-        total_loss = train_loss['total']
+        # 'train_loss' 是一個包含多個損失的字典
+        total_loss = train_loss.get('total', 0.0) # 從字典中獲取 'total'
+        
         print_and_log(f'\rEpoch [{epoch+1}/{args.num_epoch}] train loss: {total_loss:.1E}, time: {train_time_meter.val:.3f}({train_time_meter.avg:.3f})', 
                       args.log_file, args.no_log)
         # print(f'\rEpoch [{epoch+1}/{args.num_epoch}] train loss: {total_loss:.1E}, time: {train_time_meter.val:.3f}({train_time_meter.avg:.3f})')
-                  
+                      
         # 只有主進程儲存模型
         if rank == 0:
             model_state_dict = model.module.state_dict() if world_size > 1 else model.state_dict()
@@ -291,131 +312,13 @@ def run_training_process(rank, world_size, args,
         print_and_log(f'Loaded model info: {info}', args.log_file, args.no_log)
         
         print_and_log('Info: Final evaluation for the test set', args.log_file, args.no_log)
-        validation_loop(args, model, test_loader, device, criterions, loss_weights, rank)
+        # **** 警告: validation_loop 可能與 HMIL 模型輸出不相容 ****
+        hmil_validation_loop(args, model, test_loader, device, criterions, loss_weights, rank)
         # validation_loop(args, model, train_loader, device, criterions, loss_weights, rank, if_train_data=True)
     
     if world_size > 1:
         cleanup_ddp()
         
-def training_loop(args, model, loader, optimizer, device, amp_autocast, criterions, loss_weights, scheduler, epoch, rank):
-    """單個 epoch 的訓練迴圈，支援多個損失函數"""
-    start_time = time.time()
-    
-    # 為每種損失和總損失建立 AverageMeter
-    loss_meters = {name: AverageMeter() for name in list(criterions.keys()) + ['total']}
-    
-    model.train()
-    
-    if epoch == 0 and rank == 0:
-        n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        num_total_param = sum(p.numel() for p in model.parameters())
-        print_and_log(f'Total parameters: {num_total_param}, Tunable parameters: {n_parameters}', args.log_file)
-    
-    for i, (bag, label, file_path) in enumerate(loader):
-        bag, label = bag.to(device), label.to(device)
-        
-        if epoch < 3 and i < 3 and rank == 0:
-            print_and_log(list(map(lambda x: os.path.basename(x), file_path)), args.log_file, args.no_log)
-            print_and_log(bag.shape, args.log_file, args.no_log)
-            
-        # 假設模型回傳一個字典
-        with amp_autocast():
-            # 例如: model_outputs = {'logits': ..., 'features': ...}
-            train_logits = model(bag)
-            
-            # 分別計算各個損失
-            losses = {}
-            # 分類損失
-            losses['cls'] = criterions['cls'](train_logits, label)
-
-            # 根據權重加總所有損失
-            total_loss = sum(losses[name] * loss_weights[name] for name in losses)
-            
-        # --- 反向傳播 ---
-        total_loss_scaled = total_loss / args.accumulation_steps
-        total_loss_scaled.backward()
-        
-        if (i + 1) % args.accumulation_steps == 0:
-            if args.clip_grad > 0.:
-                dispatch_clip_grad(model_parameters(model), value=args.clip_grad, mode='norm')
-            optimizer.step()
-            optimizer.zero_grad()
-            if args.lr_supi and scheduler:
-                scheduler.step()
-
-        # --- 記錄與日誌 ---
-        # 更新每種損失的 AverageMeter
-        for name, loss in losses.items():
-            loss_meters[name].update(loss.item(), bag.size(0))
-        loss_meters['total'].update(total_loss.item(), bag.size(0))
-
-        if (i % args.log_iter == 0 or i == len(loader) - 1) and rank == 0:
-            lr = optimizer.param_groups[0]['lr']
-            loss_str = ', '.join([f'{name}: {meter.avg:.4f}' for name, meter in loss_meters.items()])
-            print_and_log(f'[{i}/{len(loader)-1}] {loss_str}, lr: {lr:.5f}', args.log_file, args.no_log)
-
-    end_time = time.time()
-    
-    # 彙總所有進程的平均損失，用於 epoch 結束時的日誌打印
-    avg_losses_summary = {}
-    for name, meter in loss_meters.items():
-        avg_loss = torch.tensor(meter.avg, device=device)
-        if args.world_size > 1:
-            dist.all_reduce(avg_loss, op=dist.ReduceOp.AVG)
-        avg_losses_summary[name] = avg_loss.item()
-    
-    if not args.lr_supi and scheduler:
-        scheduler.step()
-        
-    return avg_losses_summary, start_time, end_time
-
-
-def validation_loop(args, model, loader, device, criterions, loss_weights, rank, if_train_data=False):
-    """評估迴圈，只在主進程 (rank 0) 執行"""
-    if rank != 0:
-        return
-    
-    model.eval()
-    loss_meter = AverageMeter()
-    
-    all_logits, all_labels, all_onehot_labels, all_wsi_names = [], [], [], []
-    
-    with torch.no_grad():
-        for bag, label, file_path in loader:
-            bag, label = bag.to(device), label.to(device)
-            batch_size = bag.size(0)
-            
-            logits = model(bag)
-            loss = criterions['cls'](logits, label)
-            
-            loss_meter.update(loss.item(), batch_size)
-            
-            label_onehot = one_hot(label, num_classes=args.num_classes).cpu()
-            all_labels.extend(label.cpu().numpy())
-            all_onehot_labels.extend(label_onehot)
-            all_wsi_names.extend([os.path.basename(p) for p in file_path])
-            
-            if args.loss in ['ce']:
-                probabilities = torch.softmax(logits, dim=-1)
-            else: # bce, asl, etc.
-                probabilities = torch.sigmoid(logits)
-            all_logits.extend(probabilities.cpu().numpy())
-
-    # 計算並儲存評估指標
-    output_excel_path = os.path.join(args.model_path, 'metrics.xlsx')
-    output_logits_path = os.path.join(args.model_path, 'logits.csv')
-    if if_train_data:
-        output_excel_path = os.path.join(args.model_path, 'metrics_trainset.xlsx')
-        output_logits_path = os.path.join(args.model_path, 'train_logits.csv')
-    
-    eval_func = evaluation_cancer_sigmoid_cascade_binary if (args.loss not in ['ce'] and args.multi_label) else evaluation_cancer_softmax
-    
-    eval_func(all_onehot_labels, all_logits, args.class_labels, output_excel_path)
-    
-    if args.save_logits:
-        save_logits(all_onehot_labels, all_logits, args.class_labels, all_wsi_names, output_logits_path)
-
-    print_and_log(f'Validation Loss: {loss_meter.avg:.4f}', args.log_file, args.no_log)
 
 
 # --- 主程式進入點 ---
@@ -428,9 +331,22 @@ def main():
     world_size = args.world_size
 
     # 在主進程中準備資料元數據
+    # *注意*: prepare_metadata 現在會修改 args.n_class = [coarse_num, fine_num]
     train_wsi_names, train_wsi_labels, train_cluster_labels, \
     test_wsi_names, test_wsi_labels = prepare_metadata(args)
     
+    # *** 關鍵: 覆蓋 prepare_metadata 設置的 n_class ***
+    # parse_args 根據 mil_method == 'hmil' 將 num_classes 設置為 [2, 6]
+    # 這將傳遞給模型 (MIL(n_classes=args.num_classes...))
+    # prepare_metadata 設置的 args.n_class 用於 HMIL 損失函數
+    # (compute_hierarchical_loss)
+    # 確保 parse_args 中的 'hmil' 邏輯是您想要的
+    if args.mil_method == 'hmil':
+        # 確保 n_class (用於損失) 和 num_classes (用於模型) 一致
+        args.n_class = args.num_classes 
+        print_and_log(f"Info: HMIL active. Overriding n_class for model AND loss to {args.num_classes}", args.log_file, args.no_log)
+
+
     # 將資料預載入到共享記憶體
     print_and_log("Loading datasets into shared memory...", args.log_file, args.no_log)
     train_data_in_shared_memory = C16DatasetSharedMemory.preload_to_shared_memory(
@@ -464,9 +380,11 @@ def parse_args():
     parser.add_argument('--dataset_root', default='/data/wsi/TCTGC50k-features/gigapath-coarse', type=str)
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix dataloader random seed')
     parser.add_argument('--balanced_sampling', default=0, type=int)
-    # === MODIFICATION START: Changed default number of classes to 2 ===
-    parser.add_argument('--num_classes', default=2, type=int)
-    # === MODIFICATION END ===
+    
+    # *** 'num_classes' 預設值被修改。HMIL 邏輯將在下面覆蓋它 ***
+    parser.add_argument('--num_classes', default=2, type=int, 
+                        help='Number of classes. For HMIL, this will be overridden by a list [coarse, fine].')
+    
     
     # Augment
     parser.add_argument('--patch_drop', default=1.0, type=float)
@@ -499,7 +417,8 @@ def parse_args():
     parser.add_argument('--clip_grad', default=0.0, type=float)
     
     # Model
-    parser.add_argument('--mil_method', default='abmil', type=str, help='[abmil, transmil, dsmil, clam]')
+    # *** 關鍵：確保 'hmil' 是支援的選項 ***
+    parser.add_argument('--mil_method', default='abmil', type=str, help='[abmil, transmil, dsmil, clam, hmil]')
     parser.add_argument('--input_dim', default=1536, type=int)
     parser.add_argument('--dropout', default=0.25, type=float)
     
@@ -529,6 +448,10 @@ def parse_args():
     
     parser.add_argument('--world_size', type=int, default=1, help='World Size for distributed training')
     
+    parser.add_argument('--contrastive_temp', default=0.1, type=float, help='Temperature for contrastive loss')
+    parser.add_argument('--contrastive_temp_epoch', default=10, type=int, help='Epoch to change contrastive temperature')
+    # === MODIFICATION END ===
+    
     args = parser.parse_args()
     
     # 根據資料集設定路徑
@@ -549,12 +472,25 @@ def parse_args():
         args.dataset_root = '/home1/wsi/gc-all-features/frozen/gigapath1'
         # TODO
         args.train_cluster_path = None
-    if args.num_classes == 2:
-        args.class_labels = ['Normal', 'Abnormal']
-    else:
+    
+    # 'class_labels' 用於 'validation_loop'。
+    # 這 *必須* 根據 HMIL 的評估目標（coarse 或 fine）進行調整。
+    
+    # *** 關鍵：HMIL 邏輯 ***
+    if args.mil_method == 'hmil':
+        args.num_classes = [2, 6] 
+        args.mapping = "0:0, 1:1, 2:1, 3:1, 4:1, 5:1"
         args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
         args.memory_limit_ratio = 0
-            
+        
+    else:
+        # 原始框架的邏輯
+        if args.num_classes == 2:
+            args.class_labels = ['Normal', 'Abnormal']
+        else:
+            args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
+            args.memory_limit_ratio = 0
+    
     # 設定輸出路徑
     args.model_path = os.path.join(args.output_path, args.project, args.title)
     args.log_file = os.path.join(args.model_path, 'log.txt')

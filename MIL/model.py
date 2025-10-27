@@ -4,6 +4,7 @@ from torch import nn
 from modules.abmil import *
 from modules.transmil import *
 from modules.wsi_vit import WSI_ViT
+from modules.vit_nc25 import MILClassifier
 
 def initialize_weights(module):
     for m in module.modules():
@@ -35,6 +36,10 @@ class MIL(nn.Module):
             self.online_encoder = Abmil(input_dim=mlp_dim,act=act)
         elif mil == 'wsi_vit':
             self.online_encoder = WSI_ViT(input_dim=mlp_dim, dim=mlp_dim, depth=4)
+        elif mil == 'vit_nc25':
+            mlp_ori = mlp_dim
+            mlp_dim = 1024
+            self.online_encoder = MILClassifier(in_dim=mlp_ori, fc_dim=mlp_dim)
         elif mil == 'linear':
             self.patch_to_emb = nn.Identity()
             self.online_encoder = nn.Identity()

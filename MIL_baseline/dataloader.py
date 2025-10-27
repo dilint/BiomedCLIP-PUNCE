@@ -1,0 +1,493 @@
+import os
+import csv
+import torch
+import random
+import numpy as np
+from collections import Counter, defaultdict
+from torch.utils.data import Dataset
+import torch.nn.functional as F
+from sklearn.model_selection import StratifiedKFold
+import math
+
+class C16Dataset(Dataset):
+
+    def __init__(self, file_name,file_label,root,cluster_labels=None,persistence=False,transform=None):
+        """
+        参数
+            file_name: WSI pt文件名列表
+            file_label: WSI标签列表
+            root: WSI pt文件根目录
+            persistence: 是否将所有pt文件在init()中加载到内存中
+            keep_same_psize: 是否保持每个样本的patch数量一致
+            is_train: 是否为训练集
+        """
+        super(C16Dataset, self).__init__()
+        self.file_name = file_name
+        self.slide_label = file_label
+        self.slide_label = [int(_l) for _l in self.slide_label]
+        self.size = len(self.file_name)
+        self.root = root
+        self.persistence = persistence
+        self.transform = transform
+        self.cluster_labels = cluster_labels
+        if persistence:
+            self.feats = [ torch.load(os.path.join(root,'pt', _f+'.pt')) for _f in file_name ]
+
+    def __len__(self):
+        return self.size
+    
+    def __getitem__(self, idx):
+        """
+        Args
+        :param idx: the index of item
+        :return: image and its label
+        """
+        if self.persistence:
+            features = self.feats[idx]
+        else:
+            if "pt" in os.listdir(self.root):
+                dir_path = os.path.join(self.root,"pt")
+            else:
+                dir_path = self.root
+            file_path = os.path.join(dir_path, self.file_name[idx]+'.pt')
+            features = torch.load(file_path, map_location='cpu', weights_only=False)
+        label = int(self.slide_label[idx])
+        cluster_labels = None
+        if self.cluster_labels is not None:
+            cluster_labels = self.cluster_labels[idx]
+        else:
+            cluster_labels = None
+        if self.transform:
+            features = self.transform(features, cluster_labels)
+        return features, label, file_path
+
+from torch.utils.data import Dataset
+import torch.multiprocessing as mp
+import psutil
+
+class C16DatasetSharedMemory(Dataset):
+    def __init__(self, file_name, file_label, root, cluster_labels=None, 
+                 persistence=False, transform=None, shared_data=None):
+        """
+        处理数据集的类。共享内存或持久化存储的数据通过参数传入。
+        
+        Args:
+            file_name (list): 样本文件名列表。
+            file_label (list): 样本标签列表。
+            root (str): 数据文件根目录。
+            cluster_labels (list, optional): 聚类标签。默认为 None。
+            persistence (bool, optional): 是否使用持久化存储（每个进程独立加载）。默认为 False。
+            transform (callable, optional): 数据增强函数。默认为 None。
+            shared_data (dict, optional): 包含已加载到共享内存的张量的字典。默认为 None。
+        """
+        super(C16DatasetSharedMemory, self).__init__()
+        self.file_name = file_name
+        self.slide_label = file_label
+        self.size = len(self.file_name)
+        self.root = root
+        self.persistence = persistence
+        self.transform = transform
+        self.cluster_labels = cluster_labels
+        
+        # 将共享数据引用直接赋值给实例变量
+        self.shared_data = shared_data
+        
+        # persistence 模式，在每个进程独立加载数据
+        # 这里的逻辑与你的原始代码保持一致
+        if self.persistence:
+            self.feats = []
+            pt_dir = os.path.join(root, 'pt') if "pt" in os.listdir(root) else root
+            for _f in file_name:
+                file_path = os.path.join(pt_dir, _f + '.pt')
+                self.feats.append(torch.load(file_path, map_location='cpu', weights_only=False))
+        else:
+            self.feats = None
+
+    def __len__(self):
+        return self.size
+    
+    def __getitem__(self, idx):
+        # 优先从共享内存中读取
+        if self.shared_data is not None and idx in self.shared_data:
+            features = self.shared_data[idx]
+        # 如果共享内存不可用，再从持久化存储中读取
+        elif self.persistence:
+            features = self.feats[idx]
+        # 最后，如果以上两者都不可用，则从磁盘读取
+        else:
+            pt_dir = os.path.join(self.root, 'pt') if "pt" in os.listdir(self.root) else self.root
+            file_path = os.path.join(pt_dir, self.file_name[idx] + '.pt')
+            features = torch.load(file_path, map_location='cpu', weights_only=False)
+            
+        label = self.slide_label[idx]
+        cluster_labels_item = self.cluster_labels[idx] if self.cluster_labels is not None else -1
+        
+        if self.transform:
+            features = self.transform(features, cluster_labels_item)
+        
+        return features, label, self.file_name[idx]
+
+    # --- 修改 preload_to_shared_memory 函数以调用全局函数 ---
+    def preload_to_shared_memory(file_names, root_dir, memory_limit_ratio):
+        """
+        负责在主进程中**顺序**加载数据并移入共享内存。
+        这个函数只由主进程调用一次。
+        """
+        shared_data = {}
+        print("Pre-loading data for shared memory...") 
+
+        try:
+            available_memory = psutil.virtual_memory().available * memory_limit_ratio
+        except (ImportError, NameError):
+            print("`psutil` library not found. Returning default 4GB available memory.")
+            available_memory = 4 * 1024**3 # 默认 4GB
+
+        pt_dir = os.path.join(root_dir, 'pt') if "pt" in os.listdir(root_dir) else root_dir
+
+        sample_file_path = os.path.join(pt_dir, file_names[0] + '.pt')
+        try:
+            sample_data = torch.load(sample_file_path, map_location='cpu', weights_only=False)
+            sample_size = sample_data.element_size() * sample_data.nelement()
+        except Exception as e:
+            print(f"Error loading sample file {file_names[0]}: {e}")
+            return {}
+
+        if sample_size == 0:
+            print("Sample file size is zero, cannot estimate preload count.")
+            return {}
+            
+        max_preload = min(int(available_memory / sample_size), len(file_names))
+        print(f"Available memory for preload: {available_memory/1024**3:.2f}GB, "
+            f"Sample file size: {sample_size/1024**2:.2f}MB, "
+            f"Preloading {max_preload}/{len(file_names)} files.")
+
+        for idx in range(max_preload):
+            file_name = file_names[idx]
+            try:
+                file_path = os.path.join(pt_dir, file_name + '.pt')
+                with open(file_path, 'rb') as f:
+                    data = torch.load(f, map_location='cpu', weights_only=False)
+                    f.close()
+                data.share_memory_() # 关键步骤
+                shared_data[idx] = data
+            except Exception as e:
+                print(f"Error loading file {file_name}: {e}")
+                continue
+        print(f"Preloaded {len(shared_data)}/{max_preload} files to shared memory.")
+        return shared_data
+
+
+class C16DatasetTwoView(Dataset):
+    # ### MODIFIED ###: 接受 transform1 和 transform2
+    def __init__(self, file_name, file_label, root, cluster_labels=None, 
+                 persistence=False, transform1=None, transform2=None, shared_data=None):
+        """
+        處理数据集的類。現在支援為雙分支網絡生成兩個視圖。
+        
+        Args:
+            transform1 (callable, optional): 第一種資料增強函數。
+            transform2 (callable, optional): 第二種資料增強函數。如果提供，__getitem__將回傳兩個視圖。
+        """
+        super(C16DatasetTwoView, self).__init__()
+        self.file_name = file_name
+        self.slide_label = [int(_l) for _l in file_label]
+        self.size = len(self.file_name)
+        self.root = root
+        self.persistence = persistence
+        # ### MODIFIED ###: 儲存兩種增強
+        self.transform1 = transform1
+        self.transform2 = transform2
+        self.cluster_labels = cluster_labels
+        
+        self.shared_data = shared_data
+        
+        if self.persistence:
+            self.feats = []
+            pt_dir = os.path.join(root, 'pt') if "pt" in os.listdir(root) else root
+            for _f in file_name:
+                file_path = os.path.join(pt_dir, _f + '.pt')
+                self.feats.append(torch.load(file_path, map_location='cpu', weights_only=False))
+        else:
+            self.feats = None
+
+    def __len__(self):
+        return self.size
+    
+    def __getitem__(self, idx):
+        if self.shared_data is not None and idx in self.shared_data:
+            features = self.shared_data[idx]
+        elif self.persistence:
+            features = self.feats[idx]
+        else:
+            pt_dir = os.path.join(self.root, 'pt') if "pt" in os.listdir(self.root) else self.root
+            file_path = os.path.join(pt_dir, self.file_name[idx] + '.pt')
+            features = torch.load(file_path, map_location='cpu', weights_only=False)
+            
+        label = self.slide_label[idx]
+        cluster_labels_item = self.cluster_labels[idx] if self.cluster_labels is not None else -1
+        
+        # ### MODIFIED ###: 根據 transform 決定回傳單視圖或雙視圖
+        
+        # 如果 transform2 存在，表示是訓練階段，需要回傳兩個增強視圖
+        if self.transform1 and self.transform2:
+            features1 = self.transform1(features, cluster_labels_item)
+            features2 = self.transform2(features, cluster_labels_item)
+            return (features1, features2), label, self.file_name[idx]
+        
+        # 否則，表示是驗證/測試階段，只回傳一個增強視圖
+        elif self.transform1:
+            features = self.transform1(features, cluster_labels_item)
+            return features, label, self.file_name[idx]
+        
+        # 如果沒有任何 transform
+        return features, label, self.file_name[idx]
+    
+class TwoViewAugDataset_index(Dataset):
+    r"""Returns two augmentation of each image and the image label."""
+
+    def __init__(self, dataset, transform1, transform2):
+        self.dataset = dataset
+        self.transform1 = transform1
+        self.transform2 = transform2
+
+    def __getitem__(self, index):
+        feature, label, file_path = self.dataset[index]
+        cluster_labels = self.dataset.cluster_labels[index]
+        return self.transform1(feature, cluster_labels), self.transform2(feature, cluster_labels), label, file_path, index
+
+    def __len__(self):
+        return len(self.dataset)
+    
+# class GcMTLDataset(C16Dataset):
+#     def __init__(self, file_name, file_label,root,num_task,num_classes,persistence=False,keep_same_psize=0,is_train=False,fine_concat=False):
+#         super(GcMTLDataset, self).__init__(file_name, file_label,root,persistence,keep_same_psize,is_train)
+#         self.num_classes = num_classes
+#         self.num_task = num_task
+#         self.fine_concat = fine_concat
+        
+#     def __getitem__(self, idx):
+#         features, label, file_path, mask = super().__getitem__(idx)
+#         tensor_num_classes = torch.tensor(self.num_classes)
+#         tensor_num_classes_cumsum = tensor_num_classes.cumsum(dim=0)
+#         # 第一个位置大于label的位置即为task_id
+#         task_id = next((i for i, x in enumerate(tensor_num_classes_cumsum) if x > label), -1)
+
+#         # if task_id > 0:
+#         #     label -= tensor_num_classes_cumsum[task_id-1]
+        
+#         if self.fine_concat:
+#             features = features.reshape(-1, features.shape[-1])
+#         return features, label, task_id, file_path, mask
+    
+    
+# class NGCDatasetInfer(Dataset):
+
+#     def __init__(self, file_name, file_label,root,persistence=False,keep_same_psize=0,is_train=False):
+#         """
+#         Args
+#         :param images: 
+#         :param transform: optional transform to be applied on a sample
+#         """
+#         super(NGCDatasetInfer, self).__init__()
+#         self.file_name = file_name
+#         self.slide_label = file_label
+#         self.slide_label = [int(_l) for _l in self.slide_label]
+#         self.size = len(self.file_name)
+#         self.root = root
+#         self.persistence = persistence
+#         self.keep_same_psize = keep_same_psize
+#         self.is_train = is_train
+
+#         if persistence:
+#             self.feats = [ torch.load(os.path.join(root,'pt', _f+'.pt')) for _f in file_name ]
+
+#     def __len__(self):
+#         return self.size
+
+#     def __getitem__(self, idx):
+#         """
+#         Args
+#         :param idx: the index of item
+#         :return: image and its label
+#         """
+#         if self.persistence:
+#             features = self.feats[idx]
+#         else:
+#             dir_path = os.path.join(self.root,"pt")
+
+#             file_path = os.path.join(dir_path, self.file_name[idx]+'.pt')
+#             features = torch.load(file_path)
+
+#         label = int(self.slide_label[idx])
+#         wsi_name = self.file_name[idx]
+        
+#         return features, label, wsi_name
+    
+
+# # Copyright (c) OpenMMLab. All rights reserved.
+# # 修改自mmengine的ClassBalancedDataset类
+class ClassBalancedDataset(Dataset):
+    """A wrapper of class balanced dataset.
+
+    Suitable for training on class imbalanced datasets like LVIS. Following
+    the sampling strategy in the `paper <https://arxiv.org/abs/1908.03195>`_,
+    in each epoch, an image may appear multiple times based on its
+    "repeat factor".
+    The repeat factor for an image is a function of the frequency the rarest
+    category labeled in that image. The "frequency of category c" in [0, 1]
+    is defined by the fraction of images in the training set (without repeats)
+    in which category c appears.
+    The dataset needs to instantiate :meth:`get_cat_ids` to support
+    ClassBalancedDataset.
+
+    The repeat factor is computed as followed.
+
+    1. For each category c, compute the fraction # of images
+       that contain it: :math:`f(c)`
+    2. For each category c, compute the category-level repeat factor:
+       :math:`r(c) = max(1, sqrt(t/f(c)))`
+    3. For each image I, compute the image-level repeat factor:
+       :math:`r(I) = max_{c in I} r(c)`
+
+    Note:
+        ``ClassBalancedDataset`` should not inherit from ``BaseDataset``
+        since ``get_subset`` and ``get_subset_`` could  produce ambiguous
+        meaning sub-dataset which conflicts with original dataset. If you
+        want to use a sub-dataset of ``ClassBalancedDataset``, you should set
+        ``indices`` arguments for wrapped dataset which inherit from
+        ``BaseDataset``.
+
+    Args:
+        dataset (BaseDataset or dict): The dataset to be repeated.
+        oversample_thr (float): frequency threshold below which data is
+            repeated. For categories with ``f_c >= oversample_thr``, there is
+            no oversampling. For categories with ``f_c < oversample_thr``, the
+            degree of oversampling following the square-root inverse frequency
+            heuristic above.
+        lazy_init (bool, optional): whether to load annotation during
+            instantiation. Defaults to False
+    """
+
+    def __init__(self,
+                 dataset: Dataset,
+                 oversample_thr: float,
+                 lazy_init: bool = False):
+        self.dataset = dataset
+        self.oversample_thr = oversample_thr
+        self._fully_initialized = False
+        if not lazy_init:
+            self.full_init()
+
+    
+    def full_init(self):
+        """Loop to ``full_init`` each dataset."""
+        if self._fully_initialized:
+            return
+
+        # Get repeat factors for each image.
+        repeat_factors = self._get_repeat_factors(self.dataset,
+                                                  self.oversample_thr)
+        # Repeat dataset's indices according to repeat_factors. For example,
+        # if `repeat_factors = [1, 2, 3]`, and the `len(dataset) == 3`,
+        # the repeated indices will be [1, 2, 2, 3, 3, 3].
+        repeat_indices = []
+        for dataset_index, repeat_factor in enumerate(repeat_factors):
+            repeat_indices.extend([dataset_index] * math.ceil(repeat_factor))
+        self.repeat_indices = repeat_indices
+
+        self._fully_initialized = True
+
+    def _get_repeat_factors(self, dataset: Dataset,
+                            repeat_thr: float):
+        """Get repeat factor for each images in the dataset.
+
+        Args:
+            dataset (BaseDataset): The dataset.
+            repeat_thr (float): The threshold of frequency. If an image
+                contains the categories whose frequency below the threshold,
+                it would be repeated.
+
+        Returns:
+            List[float]: The repeat factors for each images in the dataset.
+        """
+        # 1. For each category c, compute the fraction # of images
+        #   that contain it: f(c)
+        category_freq: defaultdict = defaultdict(float)
+        num_images = len(dataset)
+        for idx in range(num_images):
+            category_freq[self.dataset.slide_label[idx]] += 1
+        for k, v in category_freq.items():
+            assert v > 0, f'caterogy {k} does not contain any images'
+            category_freq[k] = v / num_images
+
+        # 2. For each category c, compute the category-level repeat factor:
+        #    r(c) = max(1, sqrt(t/f(c)))
+        category_repeat = {
+            cat_id: max(1.0, math.sqrt(repeat_thr / cat_freq))
+            for cat_id, cat_freq in category_freq.items()
+        }
+
+        # 3. For each image I and its labels L(I), compute the image-level
+        # repeat factor:
+        #    r(I) = max_{c in L(I)} r(c)
+        repeat_factors = []
+        for idx in range(num_images):
+            # the length of `repeat_factors` need equal to the length of
+            # dataset. Hence, if the `cat_ids` is empty,
+            # the repeat_factor should be 1.
+            repeat_factor = category_repeat[self.dataset.slide_label[idx]]
+            repeat_factors.append(repeat_factor)
+
+        print(category_repeat)
+        return repeat_factors
+
+    def _get_ori_dataset_idx(self, idx: int) -> int:
+        """Convert global index to local index.
+
+        Args:
+            idx (int): Global index of ``RepeatDataset``.
+
+        Returns:
+            int: Local index of data.
+        """
+        return self.repeat_indices[idx]
+
+    def get_cat_ids(self, idx: int) :
+        """Get category ids of class balanced dataset by index.
+
+        Args:
+            idx (int): Index of data.
+
+        Returns:
+            List[int]: All categories in the image of specified index.
+        """
+        sample_idx = self._get_ori_dataset_idx(idx)
+        return self.dataset.get_cat_ids(sample_idx)
+
+    def get_data_info(self, idx: int) -> dict:
+        """Get annotation by index.
+
+        Args:
+            idx (int): Global index of ``ConcatDataset``.
+
+        Returns:
+            dict: The idx-th annotation of the dataset.
+        """
+        sample_idx = self._get_ori_dataset_idx(idx)
+        return self.dataset.get_data_info(sample_idx)
+
+    def __getitem__(self, idx):
+        if not self._fully_initialized:
+            print_log(
+                'Please call `full_init` method manually to accelerate '
+                'the speed.',
+                logger='current',
+                level=logging.WARNING)
+            self.full_init()
+
+        ori_index = self._get_ori_dataset_idx(idx)
+        return self.dataset[ori_index]
+
+    def __len__(self):
+        return len(self.repeat_indices)
+

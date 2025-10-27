@@ -99,19 +99,12 @@ def prepare_metadata(args):
     test_wsi_names = df_test['wsi_name'].values
     test_wsi_labels = df_test['wsi_label'].map(LABEL_TO_ID).values
 
-    # === Binary Classification Logic ===
-    if args.num_classes == 2:
-        train_wsi_labels = (train_wsi_labels > 0).astype(int)
-        test_wsi_labels = (test_wsi_labels > 0).astype(int)
-        print_and_log("Info: Labels converted to binary format (0: Normal, 1: Abnormal).",
-                      args.log_file, args.no_log)
-
     # === MODIFICATION START: 計算 pi (類別分佈) ===
     print_and_log("Calculating class distribution 'pi' from training data...", args.log_file, args.no_log)
     # 統計每個類別的數量
     unique_classes, counts = np.unique(train_wsi_labels, return_counts=True)
     # 建立一個長度為 num_classes 的零向量
-    pi_counts = np.zeros(args.num_classes)
+    pi_counts = np.zeros(len(set(test_wsi_labels)))
     # 將實際的數量填入對應的索引位置
     pi_counts[unique_classes] = counts
     # 正規化得到比例向量 pi
@@ -119,7 +112,13 @@ def prepare_metadata(args):
     pi = torch.tensor(pi_proportions, dtype=torch.float32)
     print_and_log(f"Calculated pi: {pi.numpy()}", args.log_file, args.no_log)
     # === MODIFICATION END ===
-
+    
+    # === Binary Classification Logic ===
+    if args.num_classes == 2:
+        train_wsi_labels = (train_wsi_labels > 0).astype(int)
+        test_wsi_labels = (test_wsi_labels > 0).astype(int)
+        print_and_log("Info: Labels converted to binary format (0: Normal, 1: Abnormal).",
+                      args.log_file, args.no_log)
     # 在返回值中加入 pi
     return train_wsi_names, train_wsi_labels, train_cluster_labels, test_wsi_names, test_wsi_labels, pi
 
@@ -162,7 +161,7 @@ def run_training_process(rank, world_size, args,
     print_and_log(f'Process {rank}: Using Dual-Branch training mode.', args.log_file, args.no_log)
     
     # 測試集增強
-    test_transform = PatchFeatureAugmenter(augment_type='none') if args.patch_pad else None
+    test_transform = PatchFeatureAugmenter(augment_type='none')
         
     # 分支 1: K-means drop
     train_transform_1 = PatchFeatureAugmenter(
@@ -216,7 +215,7 @@ def run_training_process(rank, world_size, args,
 
     # ---> 模型、損失函數、優化器設定
     model = MIL(
-        input_dim=args.input_dim, mlp_dim=512, n_classes=args.num_classes,
+        input_dim=args.input_dim, mlp_dim=1024, n_classes=args.num_classes,
         mil=args.mil_method, dropout=args.dropout
     ).to(device)
 
@@ -267,10 +266,10 @@ def run_training_process(rank, world_size, args,
         print_and_log(f'Process {rank}: Loading target weights for GHLoss with target_dim={args.target_dim}', 
                       args.log_file, args.no_log)
         try:
-            if args.target_dim <= 512:
-                target_weight_path = f'target/{args.target_dim}_512_target.npy'
+            if args.target_dim <= 1024:
+                target_weight_path = f'target/{args.target_dim}_1024_target.npy'
             else:
-                target_weight_path = f'target/{args.target_dim}_512_approximate_target.npy'
+                target_weight_path = f'target/{args.target_dim}_1024_approximate_target.npy'
             
             loaded_npy = np.load(target_weight_path)
             target_weight = torch.tensor(loaded_npy).float().to(device).detach()
@@ -406,7 +405,7 @@ def training_loop(args, model, loader, optimizer, device, amp_autocast, criterio
             logits2, feat2 = model(bag2, return_feat=True)
 
             # 分類損失 (兩個分支的平均)
-            if epoch > args.warmup_epoch:
+            if epoch >= args.warmup_epoch:
                 loss_cls1 = criterions['cls'](logits1, label)
                 loss_cls2 = criterions['cls'](logits2, label)
                 losses['cls'] = (loss_cls1 + loss_cls2) / 2.0
@@ -583,10 +582,6 @@ def parse_args():
                         action='store_true', help='Fix dataloader random seed')
     parser.add_argument('--num_classes', default=2, type=int)
 
-    # Augment
-    parser.add_argument('--patch_drop', default=1.0, type=float, help="Ratio for k-means drop in transform 1 (set to 0 to disable drop)")
-    parser.add_argument('--patch_pad', default=1.0, type=float, help="Enable padding in transform 2 and test transform (set to 0 to disable)")
-
     # Train
     parser.add_argument('--num_epoch', default=100, type=int)
     parser.add_argument('--warmup_epoch', default=100, type=int) # 預設從第0個epoch就開始計算分類損失
@@ -625,10 +620,10 @@ def parse_args():
 
     # Model
     parser.add_argument('--mil_method', default='abmil',
-                        type=str, help='[abmil, transmil, dsmil, clam]')
+                        type=str, help='[abmil, transmil, dsmil, clam, vit_nc25]')
     parser.add_argument('--input_dim', default=1536, type=int)
     parser.add_argument('--dropout', default=0.25, type=float)
-    parser.add_argument('--target_dim', type=int, default=10, 
+    parser.add_argument('--target_dim', type=int, default=6, 
                         help='Dimension for target weight projection for GHLoss')
 
     # Misc
@@ -667,31 +662,23 @@ def parse_args():
         args.train_label_path = '/data/wsi/TCTGC50k-labels/6_labels/TCTGC50k-v15-train.csv'
         args.test_label_path = '/data/wsi/TCTGC50k-labels/6_labels/TCTGC50k-v15-test.csv'
         args.train_cluster_path = f'../datatools/TCTGC50k/cluster/kmeans_{args.kmeans_k}.csv'
-        if args.num_classes == 2:
-            args.class_labels = ['Normal', 'Abnormal']
-        else:
-            args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
         args.memory_limit_ratio = 0
-    elif args.datasets == 'gc_10k':
-        args.train_label_path = '/data/wsi/TCTGC10k-labels/6_labels/TCTGC10k-v15-train.csv'
-        args.test_label_path = '/data/wsi/TCTGC10k-labels/6_labels/TCTGC10k-v15-test.csv'
-        args.train_cluster_path = f'../datatools/TCTGC10k/cluster/kmeans_{args.kmeans_k}.csv'
-        if args.num_classes == 2:
-            args.class_labels = ['Normal', 'Abnormal']
-        else:
-            args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
+    elif args.datasets[:3] == 'gc_' and args.datasets[-1] == 'k':
+        num = int((args.datasets.split('_')[1].split('k')[0]))
+        args.train_label_path = f'/data/wsi/TCTGC10k-labels/6_labels/TCTGC{num}k-v15-train.csv'
+        args.test_label_path = f'/data/wsi/TCTGC10k-labels/6_labels/TCTGC{num}k-v15-test.csv'
+        args.train_cluster_path = f'../datatools/TCTGC{num}k/cluster/kmeans_{args.kmeans_k}.csv'
         args.memory_limit_ratio = 0
     elif args.datasets == 'gc_2625':
         args.train_label_path = '/data/wsi/TCTGC2625-labels/6_labels/TCTGC-2625-train.csv'
         args.test_label_path = '/data/wsi/TCTGC2625-labels/6_labels/TCTGC-2625-test.csv'
         args.dataset_root = '/home1/wsi/gc-all-features/frozen/gigapath1'
         args.train_cluster_path = None # 2625 資料集可能沒有聚類檔案，需要手動指定
-        if args.num_classes == 2:
-            args.class_labels = ['Normal', 'Abnormal']
-        else:
-            args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
         args.memory_limit_ratio = 0
-
+    if args.num_classes == 2:
+        args.class_labels = ['Normal', 'Abnormal']
+    else:
+        args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
     # 檢查雙分支訓練的必要條件
     if not args.train_cluster_path:
         print_and_log("Warning: --train_cluster_path is not set. Dual-branch augmentation might fail.", 

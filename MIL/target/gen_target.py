@@ -10,7 +10,7 @@ def simplex_equiangular_tight_frame(k, d):
     return M
 
 k = 6
-d = 512
+d = 1024
 
 M = simplex_equiangular_tight_frame(k, d)
 np.save('{}_{}_target.npy'.format(k, d),M)

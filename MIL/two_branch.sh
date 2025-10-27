@@ -5,14 +5,12 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3
 # K=4 # 4 8 16 32
 # ratio=0.1
 # min=20
-dataset=gc_10k # gc_10k gc_v15 gc_2625
-mil_method=wsi_vit # transmil abmil wsi_vit
-patch_drop=1
-patch_pad=1
+dataset=gc_20k # gc_10k gc_v15 gc_2625
+mil_method=vit_nc25 # transmil abmil wsi_vit vit_nc25
 weight=1.
-batch_size=8 # 32 1
-warmup_epoch=0
-epoch=15
+batch_size=16 # 32 1
+warmup_epoch=50
+epoch=100
 loss=focal # ce bce focal
 frozen=0
 multi_label=0
@@ -23,16 +21,14 @@ lr=$(echo "0.00002 * $world_size * $batch_size" | bc)
 
 python main_binary_twobranch.py --batch_size ${batch_size} --lr ${lr} --num_epoch ${epoch} \
     --datasets ${dataset} \
-    --patch_drop ${patch_drop} \
-    --patch_pad ${patch_pad} \
     --mil_method ${mil_method} \
     --loss ${loss} \
     --multi_label ${multi_label} \
-    --project "test${dataset}/10.13-twobranch" \
+    --project "test${dataset}/10.20-twobranch" \
     --world_size ${world_size} \
     --consistency_weight ${consistency_weight} \
     --warmup_epoch ${warmup_epoch} \
-    --title gigapath-${mil_method}-${world_size}xb${batch_size}-${loss}-multi${multi_label}-drop${patch_drop}-pad${patch_pad}-epoch${epoch}a${warmup_epoch}-lr${lr}-cw${consistency_weight}-pi \
+    --title gigapath-${mil_method}-${world_size}xb${batch_size}-${loss}-multi${multi_label}-epoch${epoch}a${warmup_epoch}-lr${lr}-cw${consistency_weight}-pi \
     # --eval_only
 
     # --loss ce --lr 0.0002 --weight_decay 0.005 \
