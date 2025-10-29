@@ -29,7 +29,7 @@ python main_binary_twobranch.py --batch_size ${batch_size} --lr ${lr} --num_epoc
     --consistency_weight ${consistency_weight} \
     --warmup_epoch ${warmup_epoch} \
     --title gigapath-${mil_method}-${world_size}xb${batch_size}-${loss}-multi${multi_label}-epoch${epoch}a${warmup_epoch}-lr${lr}-cw${consistency_weight}-pi \
-    # --eval_only
+    --eval_only
 
     # --loss ce --lr 0.0002 --weight_decay 0.005 \
     # --train_ratio ${train_ratio} \

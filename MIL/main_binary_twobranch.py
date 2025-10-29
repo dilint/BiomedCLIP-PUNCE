@@ -343,9 +343,9 @@ def run_training_process(rank, world_size, args,
                 'optimizer': optimizer.state_dict(),
                 'epoch': epoch + 1,
             }
-            if (epoch + 1) % args.save_epoch == 0 or (epoch + 1) == args.num_epoch:
-                torch.save(checkpoint, os.path.join(
-                    args.model_path, f'epoch_{epoch+1}_model.pt'))
+            # if (epoch + 1) % args.save_epoch == 0 or (epoch + 1) == args.num_epoch:
+            #     torch.save(checkpoint, os.path.join(
+            #         args.model_path, f'epoch_{epoch+1}_model.pt'))
             torch.save(checkpoint, os.path.join(args.model_path, 'ckp.pt'))
 
     # ---> 訓練結束後的最終儲存與評估

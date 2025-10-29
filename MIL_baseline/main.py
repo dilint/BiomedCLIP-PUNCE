@@ -13,25 +13,15 @@ import os
 import random
 from contextlib import suppress
 
-# 匯入自定義模組
+# 导入自定义模块
 from dataloader import C16DatasetSharedMemory, ClassBalancedDataset
-from models import MIL
+from models import MIL, Valina_MIL
 from augments import PatchFeatureAugmenter
 from loss import BuildClsLoss
-from utils import (
-    print_and_log, 
-    seed_torch, 
-    evaluation_cancer_sigmoid,
-    evaluation_cancer_sigmoid_cascade,
-    evaluation_cancer_sigmoid_cascade_binary,
-    evaluation_cancer_softmax,
-    save_metrics_to_excel, 
-    save_logits
-)
+from utils import print_and_log, seed_torch
 from timm.utils import AverageMeter, dispatch_clip_grad
 from trainer.hmil_trainer import hmil_training_loop, hmil_validation_loop
-
-
+from trainer.abmil_trainer import abmil_training_loop, abmil_validation_loop
 
 ID_TO_LABEL = {
     0: 'nilm', 1: 'ascus', 2: 'asch', 3: 'lsil', 
@@ -39,20 +29,20 @@ ID_TO_LABEL = {
 }
 LABEL_TO_ID = {v: k for k, v in ID_TO_LABEL.items()}
 
-# --- 分散式訓練設定 ---
+# --- 分布式训练设定 ---
 
 def setup_ddp(rank, world_size):
-    """初始化分散式訓練環境 (DDP)"""
+    """初始化分布式训练环境 (DDP)"""
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12355'
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
 def cleanup_ddp():
-    """清理分散式訓練環境"""
+    """清理分布式训练环境"""
     dist.destroy_process_group()
 
 def broadcast_state_dict(state_dict, device, rank):
-    """從主進程 (rank 0) 廣播狀態字典到所有其他進程"""
+    """从主进程 (rank 0) 广播状态字典到所有其他进程"""
     if rank == 0:
         objects = [state_dict]
         dist.broadcast_object_list(objects, src=0)
@@ -62,19 +52,10 @@ def broadcast_state_dict(state_dict, device, rank):
         dist.broadcast_object_list(objects, src=0)
         return objects[0]
 
-# --- 資料準備 ---
-
 import pandas as pd
 import numpy as np
-from utils import print_and_log # 假設 print_and_log 從 utils 匯入
+from utils import print_and_log 
 import os 
-from typing import Any # 為了 gen_mapping_dict
-
-ID_TO_LABEL = {
-    0: 'nilm', 1: 'ascus', 2: 'asch', 3: 'lsil', 
-    4: 'hsil', 5: 'agc', 6: 't', 7: 'm', 8: 'bv'
-}
-LABEL_TO_ID = {v: k for k, v in ID_TO_LABEL.items()}
 
 def custom_collate_fn(batch):
     cell_images, patient_labels, third_elements = zip(*batch)
@@ -82,13 +63,14 @@ def custom_collate_fn(batch):
 
 def prepare_metadata(args):
     """
-    從 CSV 讀取元數據。
-    使用硬編碼規則 (label > 0) 創建 [N, 2] 分層標籤。
-    同時動態生成 args.fine_to_coarse_map 和 args.n_class 供後續使用。
+    从 CSV 读取元数据。
+    使用硬编码规则 (label > 0) 创建 [N, 2] 分层标签。
+    同时动态生成 args.fine_to_coarse_map 和 args.n_class 供后续使用。
     """
     if 'gc' not in args.datasets.lower():
-        raise ValueError(f"不支援的資料集: {args.datasets}")
+        raise ValueError(f"不支持的数据集: {args.datasets}")
 
+    # --- 训练集 ---
     df_train = pd.read_csv(args.train_label_path)
     
     if args.train_cluster_path:
@@ -107,23 +89,38 @@ def prepare_metadata(args):
     train_wsi_names = df_train['wsi_name'].values
     train_wsi_labels_fine = df_train['wsi_label'].map(LABEL_TO_ID).values
     
+    # ---验证集 ---
+    df_val = pd.read_csv(args.val_label_path)
+    val_wsi_names = df_val['wsi_name'].values
+    val_wsi_labels_fine = df_val['wsi_label'].map(LABEL_TO_ID).values
+    
+    # --- 测试集 ---
     df_test = pd.read_csv(args.test_label_path)
     test_wsi_names = df_test['wsi_name'].values
     test_wsi_labels_fine = df_test['wsi_label'].map(LABEL_TO_ID).values
+    
+    # --- 组合标签 ---
     train_wsi_labels_coarse = (train_wsi_labels_fine > 0).astype(int)
+    val_wsi_labels_coarse = (val_wsi_labels_fine > 0).astype(int) 
     test_wsi_labels_coarse = (test_wsi_labels_fine > 0).astype(int)
+    
     train_wsi_labels = np.column_stack((train_wsi_labels_coarse, train_wsi_labels_fine))
+    val_wsi_labels = np.column_stack((val_wsi_labels_coarse, val_wsi_labels_fine))
     test_wsi_labels = np.column_stack((test_wsi_labels_coarse, test_wsi_labels_fine))
     
-    print_and_log("Info: Labels converted to hierarchical [N, 2] format (Coarse, Fine).", args.log_file, args.no_log)
-    return train_wsi_names, train_wsi_labels, train_cluster_labels, test_wsi_names, test_wsi_labels
-# --- 核心訓練與評估流程 ---
+    print_and_log("Info: 标签已转换为 [N, 2] 层次结构格式 (Coarse, Fine).", args.log_file, args.no_log)
+    
+    return train_wsi_names, train_wsi_labels, train_cluster_labels, \
+           val_wsi_names, val_wsi_labels, \
+           test_wsi_names, test_wsi_labels
 
+# --- 核心训练与评估流程 ---
 def run_training_process(rank, world_size, args, 
                          train_wsi_names, train_wsi_labels, train_cluster_labels, train_data_in_shared_memory,
+                         val_wsi_names, val_wsi_labels, val_data_in_shared_memory,
                          test_wsi_names, test_wsi_labels, test_data_in_shared_memory):
     """
-    單個 GPU 進程執行的主訓練函數。
+    单个 GPU 进程执行的主训练函数。
     """
     torch.cuda.set_device(rank)
     device = torch.device(f'cuda:{rank}')
@@ -138,16 +135,15 @@ def run_training_process(rank, world_size, args,
     if rank != 0:
         args.no_log = True
 
-    print_and_log(f'Process {rank}: Dataset: {args.datasets}', args.log_file, args.no_log)
+    print_and_log(f'进程 {rank}: 数据集: {args.datasets}', args.log_file, args.no_log)
 
-    # ---> 初始化設定
-    collate_fn = custom_collate_fn
+    # ---> 初始化设定
     amp_autocast = torch.cuda.amp.autocast if args.amp else suppress
     
     train_cluster_labels_tensor = [torch.tensor(labels) for labels in train_cluster_labels] if train_cluster_labels is not None else None
 
-    # ---> 資料載入 (DataLoader)
-    # 設定資料增強
+    # ---> 资料加载 (DataLoader)
+    # 设定资料增强
     train_transform = test_transform = None
     if args.patch_drop:
         train_transform = PatchFeatureAugmenter(kmeans_k=args.kmeans_k, kmeans_ratio=args.kmeans_ratio, kmeans_min=args.kmeans_min)
@@ -156,19 +152,30 @@ def run_training_process(rank, world_size, args,
     if args.patch_pad:
         test_transform = PatchFeatureAugmenter(augment_type='none')
     
-    # 從共享記憶體建立 Dataset
+    # 从共享内存建立 Dataset
     train_set = C16DatasetSharedMemory(
         train_wsi_names, train_wsi_labels, root=args.dataset_root, 
         cluster_labels=train_cluster_labels_tensor, transform=train_transform,
         shared_data=train_data_in_shared_memory
     )
-    test_set = C16DatasetSharedMemory(
-        test_wsi_names, test_wsi_labels, root=args.dataset_root, 
-        cluster_labels=None, transform=test_transform,
-        shared_data=test_data_in_shared_memory
-    )
     
-    # 設定 Sampler
+    # --- 【新增】仅在 rank 0 建立 val_set 和 test_set ---
+    val_set = None
+    test_set = None
+    if rank == 0:
+        val_set = C16DatasetSharedMemory(
+            val_wsi_names, val_wsi_labels, root=args.dataset_root, 
+            cluster_labels=None, transform=test_transform,
+            shared_data=val_data_in_shared_memory
+        )
+        test_set = C16DatasetSharedMemory(
+            test_wsi_names, test_wsi_labels, root=args.dataset_root, 
+            cluster_labels=None, transform=test_transform,
+            shared_data=test_data_in_shared_memory
+        )
+    # ----------------------------------------------------
+
+    # 设定 Sampler
     if world_size > 1:
         train_sampler = DistributedSampler(train_set, num_replicas=world_size, rank=rank, shuffle=True, seed=args.seed)
     else:
@@ -177,7 +184,7 @@ def run_training_process(rank, world_size, args,
     if args.balanced_sampling:
         train_set = ClassBalancedDataset(dataset=train_set,oversample_thr=0.5)
 
-    # 修正 DataLoader 的隨機種子
+    # 修正 DataLoader 的随机种子
     generator = torch.Generator()
     if args.fix_loader_random:
         generator.manual_seed(7784414403328510413)
@@ -185,25 +192,29 @@ def run_training_process(rank, world_size, args,
     train_loader = DataLoader(
         train_set, batch_size=args.batch_size, sampler=train_sampler,
         shuffle=(train_sampler is None), pin_memory=True, num_workers=args.num_workers,
-        persistent_workers=True, prefetch_factor=2, generator=generator, collate_fn=collate_fn
+        persistent_workers=True, prefetch_factor=2, generator=generator, collate_fn=custom_collate_fn
     )
     
-    # 只有主進程需要載入測試集進行評估
+    val_loader = None
     test_loader = None
     if rank == 0:
-        test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=0, collate_fn=collate_fn)
+        # 验证集和测试集通常使用 batch_size=1
+        val_loader = DataLoader(val_set, batch_size=1, shuffle=False, num_workers=0, collate_fn=default_collate)
+        test_loader = DataLoader(test_set, batch_size=1, shuffle=False, num_workers=0, collate_fn=default_collate)
+    # ------------------------------------------------------
 
-    
-    model = MIL(
-        n_classes=args.num_classes, 
-        mil=args.mil_method
-    ).to(device)
-    
+    if args.mil_method == 'hmil':
+        model = MIL(n_classes=args.num_classes,mil=args.mil_method).to(device)
+        validation_loop = hmil_validation_loop
+    else:
+        model = Valina_MIL(input_dim=args.input_dim, mlp_dim=1024, n_classes=args.num_classes,
+            mil=args.mil_method, dropout=args.dropout).to(device)
+        validation_loop = abmil_validation_loop
+
     if world_size > 1:
-        # HMIL 可能需要 find_unused_parameters=True，取決於模型實現
         model = DDP(model, device_ids=[rank], find_unused_parameters=True) 
 
-    # 載入預訓練權重
+    # 载入预训练权重
     if args.pretrain:
         state_dict = None
         if rank == 0:
@@ -216,10 +227,10 @@ def run_training_process(rank, world_size, args,
         
         model_to_load = model.module if world_size > 1 else model
         missing_keys, unexpected_keys = model_to_load.load_state_dict(state_dict, strict=False)
-        print_and_log(f"Process {rank}: Missing keys: {missing_keys}", args.log_file, args.no_log)
-        print_and_log(f"Process {rank}: Unexpected keys: {unexpected_keys}", args.log_file, args.no_log)
+        print_and_log(f"进程 {rank}: 缺失的键: {missing_keys}", args.log_file, args.no_log)
+        print_and_log(f"进程 {rank}: 意外的键: {unexpected_keys}", args.log_file, args.no_log)
     
-    # 凍結部分權重
+    # 冻结部分权重
     if args.frozen:
         for name, param in model.named_parameters():
             if "predictor" not in name:
@@ -227,12 +238,12 @@ def run_training_process(rank, world_size, args,
     
     criterions = {
         'cls': BuildClsLoss(args),
-        # 'com': CompactnessLoss() # 假設 CompactnessLoss 不需要特殊參數
+        # 'com': CompactnessLoss() # 假设 CompactnessLoss 不需要特殊参数
     }
     
-    # 'validation_loop' 也不使用 'loss_weights'，但為保持一致性，我們保留
+    # 'validation_loop' 也不使用 'loss_weights'，但为保持一致性，我们保留
     loss_weights = {
-        'cls': 1.0, # 主要的分類損失權重通常為 1
+        'cls': 1.0, # 主要的分类损失权重通常为 1
         # 'com': args.com_loss_weight
     }
     
@@ -242,7 +253,7 @@ def run_training_process(rank, world_size, args,
     elif args.opt == 'adam':
         optimizer = torch.optim.Adam(optimizer_params, lr=args.lr, weight_decay=args.weight_decay)
 
-    # 設定學習率排程
+    # 设定学习率排程
     scheduler = None
     if args.lr_sche == 'cosine':
         steps = args.num_epoch * len(train_loader) if args.lr_supi else args.num_epoch
@@ -252,127 +263,125 @@ def run_training_process(rank, world_size, args,
     elif args.lr_sche == 'cycle':
         scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, epochs=args.num_epoch, steps_per_epoch=len(train_loader))
 
-    # ---> 僅評估模式
+    # ---> 仅评估模式
     if args.eval_only:
         if rank == 0:
             checkpoint = torch.load(os.path.join(args.model_path, 'ckp.pt'), weights_only=False)
             model_to_load = model.module if world_size > 1 else model
             model_to_load.load_state_dict(checkpoint['model'])
-            # **** 警告: validation_loop 可能與 HMIL 模型輸出不相容 ****
-            hmil_validation_loop(args, model, test_loader, device, criterions, loss_weights, rank)
-            # validation_loop(args, model, train_loader, device, criterions, loss_weights, rank, if_train_data=True)
+            
+            print_and_log('信息: [仅评估模式] 正在验证集上评估...', args.log_file, args.no_log)
+            validation_loop(args, model, val_loader, device, criterions, val_set_name="Validation")
+            
+            print_and_log('信息: [仅评估模式] 正在测试集上评估...', args.log_file, args.no_log)
+            validation_loop(args, model, test_loader, device, criterions, val_set_name="Test")
         return
 
-    # ---> 訓練迴圈
+    # ---> 训练循环
     train_time_meter = AverageMeter()
+    best_val_auc = 0.0
+    
     for epoch in range(args.num_epoch):
         if world_size > 1:
             train_loader.sampler.set_epoch(epoch)
         
-        # === MODIFICATION START: 'criterions' 和 'loss_weights' 不再傳遞 ===
-        # 因為 'training_loop' 內部將實作 HMIL 專用的損失計算
-        # 'training_loop' 現在將返回一個包含多個損失的字典
-        train_loss, start_time, end_time = hmil_training_loop(
-            args, model, train_loader, optimizer, device, 
-            amp_autocast, scheduler, epoch, rank
-        )
-        # === MODIFICATION END ===
-        
+        if args.mil_method == 'hmil':
+            train_loss, start_time, end_time = hmil_training_loop(
+                args, model, train_loader, optimizer, device, 
+                amp_autocast, scheduler, epoch, rank)
+        else:
+            train_loss, start_time, end_time = abmil_training_loop(
+                args, model, train_loader, optimizer, device,
+                amp_autocast, criterions, loss_weights, scheduler, epoch, rank)
+            
         train_time_meter.update(end_time - start_time)
         
-        # 'train_loss' 是一個包含多個損失的字典
-        total_loss = train_loss.get('total', 0.0) # 從字典中獲取 'total'
+        # 'train_loss' 是一个包含多个损失的字典
+        total_loss = train_loss.get('total', 0.0) # 从字典中获取 'total'
         
-        print_and_log(f'\rEpoch [{epoch+1}/{args.num_epoch}] train loss: {total_loss:.1E}, time: {train_time_meter.val:.3f}({train_time_meter.avg:.3f})', 
+        print_and_log(f'\rEpoch [{epoch+1}/{args.num_epoch}] 训练损失: {total_loss:.1E}, 时间: {train_time_meter.val:.3f}({train_time_meter.avg:.3f})', 
                       args.log_file, args.no_log)
-        # print(f'\rEpoch [{epoch+1}/{args.num_epoch}] train loss: {total_loss:.1E}, time: {train_time_meter.val:.3f}({train_time_meter.avg:.3f})')
-                      
-        # 只有主進程儲存模型
+        
         if rank == 0:
-            model_state_dict = model.module.state_dict() if world_size > 1 else model.state_dict()
-            checkpoint = {
-                'model': model_state_dict,
-                'lr_sche': scheduler.state_dict() if scheduler else None,
-                'optimizer': optimizer.state_dict(),
-                'epoch': epoch + 1,
-            }
-            # if (epoch + 1) % args.save_epoch == 0 or (epoch + 1) == args.num_epoch:
-            #     torch.save(checkpoint, os.path.join(args.model_path, f'epoch_{epoch+1}_model.pt'))
-            torch.save(checkpoint, os.path.join(args.model_path, 'ckp.pt'))
+            # 'coarse_auc' (粗分类AUC) 是您关心的主要 AUC 指标。
+            print_and_log(f'Epoch [{epoch+1}/{args.num_epoch}] 正在验证集上评估...', args.log_file, args.no_log)
+            current_val_auc = validation_loop(args, model, val_loader, device, criterions, val_set_name="Validation")
+            
+            print_and_log(f'Epoch [{epoch+1}/{args.num_epoch}] 验证集 Coarse AUC: {current_val_auc:.4f}', 
+                          args.log_file, args.no_log)
 
-        
-    # ---> 訓練結束後的最終儲存與評估
+            # 检查是否为最佳模型
+            if current_val_auc > best_val_auc:
+                best_val_auc = current_val_auc
+                print_and_log(f'---> 发现新的最佳模型! AUC: {best_val_auc:.4f} 在 epoch {epoch+1}', 
+                              args.log_file, args.no_log)
+                
+                # 保存最佳模型
+                model_state_dict = model.module.state_dict() if world_size > 1 else model.state_dict()
+                checkpoint = {
+                    'model': model_state_dict,
+                    'lr_sche': scheduler.state_dict() if scheduler else None,
+                    'optimizer': optimizer.state_dict(),
+                    'epoch': epoch + 1,
+                    'best_val_auc': best_val_auc # 存储当时的最佳指标
+                }
+                torch.save(checkpoint, os.path.join(args.model_path, 'ckp.pt'))
+    
+    # ---> 训练结束后的最终评估
     if rank == 0:
-        torch.save(checkpoint, os.path.join(args.model_path, 'ckp.pt'))
-        
-        # 載入最佳模型進行最終評估
+        print_and_log(f'训练完成。最佳验证集 AUC: {best_val_auc:.4f}', args.log_file, args.no_log)
+        print_and_log('信息: 正在加载最佳模型 (ckp.pt) 用于最终测试...', args.log_file, args.no_log)
         best_checkpoint = torch.load(os.path.join(args.model_path, 'ckp.pt'), weights_only=False)
         model_to_load = model.module if world_size > 1 else model
         info = model_to_load.load_state_dict(best_checkpoint['model'])
-        print_and_log(f'Loaded model info: {info}', args.log_file, args.no_log)
         
-        print_and_log('Info: Final evaluation for the test set', args.log_file, args.no_log)
-        # **** 警告: validation_loop 可能與 HMIL 模型輸出不相容 ****
-        hmil_validation_loop(args, model, test_loader, device, criterions, loss_weights, rank)
-        # validation_loop(args, model, train_loader, device, criterions, loss_weights, rank, if_train_data=True)
-    
+        print_and_log(f'已加载最佳模型 (来自 epoch {best_checkpoint.get("epoch", "N/A")})。加载信息: {info}', 
+                      args.log_file, args.no_log)
+        print_and_log('信息: 正在 【测试集】 上进行最终评估', args.log_file, args.no_log)
+        validation_loop(args, model, test_loader, device, criterions, val_set_name="Test")
     if world_size > 1:
         cleanup_ddp()
         
 
-
-# --- 主程式進入點 ---
-
 def main():
-    """主函數：解析參數、準備資料並啟動訓練"""
+    """主函数：解析参数、准备资料并启动训练"""
     args = parse_args()
     print_and_log(args, args.log_file, args.no_log)
-    
     world_size = args.world_size
 
-    # 在主進程中準備資料元數據
-    # *注意*: prepare_metadata 現在會修改 args.n_class = [coarse_num, fine_num]
     train_wsi_names, train_wsi_labels, train_cluster_labels, \
+    val_wsi_names, val_wsi_labels, \
     test_wsi_names, test_wsi_labels = prepare_metadata(args)
     
-    # *** 關鍵: 覆蓋 prepare_metadata 設置的 n_class ***
-    # parse_args 根據 mil_method == 'hmil' 將 num_classes 設置為 [2, 6]
-    # 這將傳遞給模型 (MIL(n_classes=args.num_classes...))
-    # prepare_metadata 設置的 args.n_class 用於 HMIL 損失函數
-    # (compute_hierarchical_loss)
-    # 確保 parse_args 中的 'hmil' 邏輯是您想要的
-    if args.mil_method == 'hmil':
-        # 確保 n_class (用於損失) 和 num_classes (用於模型) 一致
-        args.n_class = args.num_classes 
-        print_and_log(f"Info: HMIL active. Overriding n_class for model AND loss to {args.num_classes}", args.log_file, args.no_log)
-
-
-    # 將資料預載入到共享記憶體
-    print_and_log("Loading datasets into shared memory...", args.log_file, args.no_log)
+    # 将资料预加载到共享内存
+    print_and_log("正在加载训练集到共享内存...", args.log_file, args.no_log)
     train_data_in_shared_memory = C16DatasetSharedMemory.preload_to_shared_memory(
         train_wsi_names, 
         root_dir=args.dataset_root, 
         memory_limit_ratio=args.memory_limit_ratio,
     )
-    # 測試集通常較小，這裡可以選擇不預載入或少量載入
-    test_data_in_shared_memory = {} 
-    print_and_log("Datasets loaded into shared memory.", args.log_file, args.no_log)
     
-    # 組合傳遞給子進程的參數
+    val_data_in_shared_memory = {}
+    test_data_in_shared_memory = {} 
+    # ----------------------------------------------------
+    print_and_log("数据已加载到共享内存。", args.log_file, args.no_log)
+    
     spawn_args = (
         world_size, args, 
         train_wsi_names, train_wsi_labels, train_cluster_labels, train_data_in_shared_memory,
+        val_wsi_names, val_wsi_labels, val_data_in_shared_memory,
         test_wsi_names, test_wsi_labels, test_data_in_shared_memory
     )
+    # ------------------------------------
 
     if world_size > 1:
         mp.spawn(run_training_process, args=spawn_args, nprocs=world_size, join=True)
     else:
-        # 單 GPU 模式
+        # 单 GPU 模式
         run_training_process(0, *spawn_args)
 
 def parse_args():
-    """解析命令行參數"""
+    """解析命令行参数"""
     parser = argparse.ArgumentParser(description='MIL Training Script')
 
     # Dataset 
@@ -381,10 +390,8 @@ def parse_args():
     parser.add_argument('--fix_loader_random', action='store_true', help='Fix dataloader random seed')
     parser.add_argument('--balanced_sampling', default=0, type=int)
     
-    # *** 'num_classes' 預設值被修改。HMIL 邏輯將在下面覆蓋它 ***
-    parser.add_argument('--num_classes', default=2, type=int, 
+    parser.add_argument('--num_classes', default=6, type=int, 
                         help='Number of classes. For HMIL, this will be overridden by a list [coarse, fine].')
-    
     
     # Augment
     parser.add_argument('--patch_drop', default=1.0, type=float)
@@ -417,7 +424,7 @@ def parse_args():
     parser.add_argument('--clip_grad', default=0.0, type=float)
     
     # Model
-    # *** 關鍵：確保 'hmil' 是支援的選項 ***
+    # *** 关键：确保 'hmil' 是支持的选项 ***
     parser.add_argument('--mil_method', default='abmil', type=str, help='[abmil, transmil, dsmil, clam, hmil]')
     parser.add_argument('--input_dim', default=1536, type=int)
     parser.add_argument('--dropout', default=0.25, type=float)
@@ -430,7 +437,7 @@ def parse_args():
     parser.add_argument('--amp', action='store_true', help='Automatic Mixed Precision')
     parser.add_argument('--num_workers', default=8, type=int)
     parser.add_argument('--save_epoch', default=25, type=int)
-    parser.add_argument('--save_logits', default=1, type=int)
+    parser.add_argument('--save_logits', default=0, type=int)
     parser.add_argument('--no_log', action='store_true')
     parser.add_argument('--eval_only', action='store_true')
     parser.add_argument('--threshold', default=0.5, type=float)
@@ -450,48 +457,44 @@ def parse_args():
     
     parser.add_argument('--contrastive_temp', default=0.1, type=float, help='Temperature for contrastive loss')
     parser.add_argument('--contrastive_temp_epoch', default=10, type=int, help='Epoch to change contrastive temperature')
-    # === MODIFICATION END ===
     
     args = parser.parse_args()
     
-    # 根據資料集設定路徑
     if args.datasets == 'gc_v15':
         args.train_label_path = '/data/wsi/TCTGC50k-labels/6_labels/TCTGC50k-v15-train.csv'
+        # 假设验证集CSV文件的命名规范
+        args.val_label_path = '/data/wsi/TCTGC50k-labels/6_labels/TCTGC50k-v15-test.csv' 
         args.test_label_path = '/data/wsi/TCTGC50k-labels/6_labels/TCTGC50k-v15-test.csv'
         args.train_cluster_path = f'../datatools/TCTGC50k/cluster/kmeans_{args.kmeans_k}.csv'
-        args.memory_limit_ratio = 0
     elif args.datasets[:3] == 'gc_' and args.datasets[-1] == 'k':
         num = int((args.datasets.split('_')[1].split('k')[0]))
         args.train_label_path = f'/data/wsi/TCTGC10k-labels/6_labels/TCTGC{num}k-v15-train.csv'
+        args.val_label_path = f'/data/wsi/TCTGC10k-labels/6_labels/TCTGC{num}k-v15-val.csv'
         args.test_label_path = f'/data/wsi/TCTGC10k-labels/6_labels/TCTGC{num}k-v15-test.csv'
         args.train_cluster_path = f'../datatools/TCTGC{num}k/cluster/kmeans_{args.kmeans_k}.csv'
-        args.memory_limit_ratio = 0
     elif args.datasets == 'gc_2625':
         args.train_label_path = '/data/wsi/TCTGC2625-labels/6_labels/TCTGC-2625-train.csv'
+        args.val_label_path = '/data/wsi/TCTGC2625-labels/6_labels/TCTGC-2625-test.csv' 
         args.test_label_path = '/data/wsi/TCTGC2625-labels/6_labels/TCTGC-2625-test.csv'
         args.dataset_root = '/home1/wsi/gc-all-features/frozen/gigapath1'
-        # TODO
         args.train_cluster_path = None
-    
-    # 'class_labels' 用於 'validation_loop'。
-    # 這 *必須* 根據 HMIL 的評估目標（coarse 或 fine）進行調整。
-    
-    # *** 關鍵：HMIL 邏輯 ***
+    args.memory_limit_ratio = 0
+
     if args.mil_method == 'hmil':
         args.num_classes = [2, 6] 
         args.mapping = "0:0, 1:1, 2:1, 3:1, 4:1, 5:1"
         args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
         args.memory_limit_ratio = 0
+        args.n_class = args.num_classes 
         
     else:
-        # 原始框架的邏輯
         if args.num_classes == 2:
             args.class_labels = ['Normal', 'Abnormal']
         else:
             args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
             args.memory_limit_ratio = 0
     
-    # 設定輸出路徑
+    # 设定输出路径
     args.model_path = os.path.join(args.output_path, args.project, args.title)
     args.log_file = os.path.join(args.model_path, 'log.txt')
     os.makedirs(args.model_path, exist_ok=True)
