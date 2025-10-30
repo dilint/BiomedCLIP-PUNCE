@@ -17,7 +17,7 @@ def initialize_weights(module):
             nn.init.constant_(m.weight, 1.0)
 
 class MIL(nn.Module):
-    def __init__(self, mil='abmil', n_classes=2, dropout=0.25):
+    def __init__(self, mil='abmil', n_classes=[2,6], dropout=0.25):
         super(MIL, self).__init__()
         if mil == 'hmil':
             self.online_encoder = HMIL(n_classes=n_classes)
@@ -59,7 +59,8 @@ class Valina_MIL(nn.Module):
         else:
             raise ValueError(f'MIL type "{mil}" not supported')
 
-        self.predictor = nn.Linear(mlp_dim,n_classes)
+        self.predictor1 = nn.Linear(mlp_dim,n_classes[0])
+        self.predictor2 = nn.Linear(mlp_dim,n_classes[1])
 
     def forward(self, x, return_attn=False, return_feat=False):
         x = self.patch_to_emb(x)
@@ -71,12 +72,13 @@ class Valina_MIL(nn.Module):
         else:
             x = self.online_encoder(x)
 
-        prob = self.predictor(x)
+        prob1 = self.predictor1(x)
+        prob2 = self.predictor2(x)
 
         if return_attn:
-            return prob, attn
+            return prob1, prob2, attn
         elif return_feat:
-            return prob, x
+            return prob1, prob2, x
         else:
-            return prob
+            return prob1, prob2
         

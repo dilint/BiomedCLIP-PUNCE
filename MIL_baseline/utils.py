@@ -126,28 +126,23 @@ def evaluation_cancer_sigmoid(bag_labels, pred_logits, class_labels, output_path
     
     bag_labels_cancer_onehot = np.array([id2labelcode[l] for l in bag_labels_cancer])
     bag_pred_cancer_onehot = np.zeros_like(bag_logits_cancer)
-    
-    for i in range(1, n_cancer_class):
+
+    threshold_neg = 0.5
+    for i in range(n_cancer_class):
         precision_pr, recall_pr, thresholds_pr = precision_recall_curve(bag_labels_cancer_onehot[:, i], bag_logits_cancer[:, i])
         f1_scores_pr = 2 * (precision_pr * recall_pr) / (precision_pr + recall_pr + 1e-10)
-        
         f1_scores_pr = np.nan_to_num(f1_scores_pr)
-        
         best_idx = np.argmax(f1_scores_pr)
-        
-        if best_idx >= len(thresholds_pr):
-            threshold_optimal = 0.5 
-        else:
-            threshold_optimal = thresholds_pr[best_idx]
-            
+        threshold_optimal = thresholds_pr[best_idx]
         best_f1 = f1_scores_pr[best_idx]
-        
         print(i, best_idx, best_f1, threshold_optimal)
+        if i == 0:
+            threshold_neg = threshold_optimal
+            continue
         thresholds.append(threshold_optimal)
         roc_auc.append(roc_auc_score(bag_labels_cancer_onehot[:, i], bag_logits_cancer[:, i]))
         bag_pred_cancer_onehot[:, i] = bag_logits_cancer[:, i] >= threshold_optimal
     
-    threshold_neg = 0.5
     for j in range(bag_pred_cancer_onehot.shape[0]):
         if np.sum(bag_pred_cancer_onehot[j]) > 1:
             rank=[0,2,1,3,4]
@@ -184,7 +179,6 @@ def evaluation_cancer_sigmoid(bag_labels, pred_logits, class_labels, output_path
     print('roc', 'acc', 'recall', 'prec', 'fs')
     print(roc_auc, accuracys, recalls, precisions, fscores)
     return roc_bi
-
 
 def evaluation_cancer_softmax(bag_labels, pred_logits, class_labels, output_path):
     """
@@ -225,7 +219,123 @@ def evaluation_cancer_softmax(bag_labels, pred_logits, class_labels, output_path
     else:
         main_metric = 0.5
     return main_metric
+
+def get_preds_from_softmax_logits(bag_labels, pred_logits, n_cancer_class):
+    """
+    从 Softmax Logits (机率) 获取 1D 预测标签和 ROC。
+    返回: pred_labels (1D), roc_auc_list, thresholds_list (None)
+    """
+    pred_labels = np.argmax(pred_logits, axis=1)
+    one_hot_gt = np.eye(n_cancer_class)[bag_labels]
     
+    roc_auc_list = []
+    for i in range(1, n_cancer_class): 
+        roc_auc_list.append(roc_auc_score(one_hot_gt[:, i], pred_logits[:, i]))
+    
+    return pred_labels, roc_auc_list, None
+
+def get_preds_from_sigmoid_logits(bag_labels, pred_logits, n_cancer_class):
+    """
+    从 Sigmoid Logits (机率) 获取 1D 预测标签、ROC 和阈值。
+    返回: pred_labels (1D), roc_auc_list, thresholds_list
+    """
+    id2labelcode = {
+        0: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        1: [0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+        2: [0.0, 1.0, 1.0, 1.0, 0.0, 0.0],
+        3: [0.0, 1.0, 0.0, 1.0, 0.0, 0.0],
+        4: [0.0, 1.0, 1.0, 1.0, 1.0, 0.0],
+        5: [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+    }
+    
+    bag_labels_cancer_onehot = np.array([id2labelcode[l] for l in bag_labels])
+    bag_pred_cancer_onehot = np.zeros_like(pred_logits)
+    
+    roc_auc_list = []
+    thresholds_list = []
+    threshold_neg = 0.5
+
+    for i in range(n_cancer_class):
+        precision_pr, recall_pr, thresholds_pr = precision_recall_curve(
+            bag_labels_cancer_onehot[:, i], pred_logits[:, i]
+        )
+        f1_scores_pr = 2 * (precision_pr * recall_pr) / (precision_pr + recall_pr + 1e-10)
+        f1_scores_pr = np.nan_to_num(f1_scores_pr)
+        best_idx = np.argmax(f1_scores_pr)
+        threshold_optimal = thresholds_pr[best_idx]
+        
+        if i == 0:
+            threshold_neg = threshold_optimal
+            continue
+            
+        thresholds_list.append(threshold_optimal)
+        roc_auc_list.append(roc_auc_score(bag_labels_cancer_onehot[:, i], pred_logits[:, i]))
+        bag_pred_cancer_onehot[:, i] = pred_logits[:, i] >= threshold_optimal
+    
+    for j in range(bag_pred_cancer_onehot.shape[0]):
+        if np.sum(bag_pred_cancer_onehot[j]) > 1:
+            rank = [0, 2, 1, 3, 4]
+            indices = np.where(bag_pred_cancer_onehot[j, 1:] == 1)[0]
+            bag_pred_cancer_onehot[j] = 0
+            if len(indices) > 0:
+                selected_index = max(indices, key=lambda x: rank[x])
+                bag_pred_cancer_onehot[j, selected_index + 1] = 1
+        elif np.sum(bag_pred_cancer_onehot[j]) == 0:
+            if pred_logits[j, 0] > threshold_neg:
+                bag_pred_cancer_onehot[j, 0] = 1
+            else:
+                max_logit_index = np.argmax(pred_logits[j, 1:]) 
+                bag_pred_cancer_onehot[j, max_logit_index + 1] = 1 
+                
+    pred_labels = np.argmax(bag_pred_cancer_onehot, axis=-1)
+    
+    return pred_labels, roc_auc_list, thresholds_list
+
+def parse_mapping(mapping_str):
+    """解析 "0:0,1:1,2:1" 这样的映射字符串"""
+    try:
+        mapping_dict = dict(
+            (int(pair.split(':')[0]), int(pair.split(':')[1])) 
+            for pair in mapping_str.split(',')
+        )
+        return mapping_dict
+    except Exception as e:
+        print(f"[ERROR] 解析映射字符串失败 '{mapping_str}': {e}")
+        return {}
+
+def evaluation_cancer(bag_labels, pred_labels, class_labels, output_path, 
+                      roc_auc_list=None, thresholds_list=None):
+    """
+    [已重构] 纯粹的评估报告函数。
+    它接收 1D 真实标签和 1D 预测标签，以及预先计算好的 ROC/Thresholds。
+    它计算常规指标 (ACC, F1 等) 并将所有内容保存到 Excel。
+    """
+    
+    bag_labels = np.array(bag_labels)
+    pred_labels = np.array(pred_labels)
+    
+    accuracys, recalls, precisions, fscores = cal_evaluation(bag_labels, pred_labels)
+    print('[INFO] confusion matrix for labels:')
+    cancer_matrix = confusion_matrix(bag_labels, pred_labels, class_labels)
+
+    main_metric = 0.5
+    if roc_auc_list and len(roc_auc_list) > 0:
+        main_metric = sum(np.nan_to_num(roc_auc_list)) / len(roc_auc_list)
+    
+    if roc_auc_list is not None and not isinstance(roc_auc_list, list):
+        roc_auc_list = [roc_auc_list]
+
+    with pd.ExcelWriter(output_path) as writer:
+        save_metrics_to_excel(
+            roc_auc=roc_auc_list, accuracys=accuracys, recalls=recalls, 
+            precisions=precisions, fscores=fscores, thresholds=thresholds_list,
+            confusion_matrix=cancer_matrix, class_labels=class_labels, writer=writer
+        )
+    print(f"Metrics and confusion matrix saved to {output_path}")
+    print('roc', 'acc', 'recall', 'prec', 'fs')
+    print(roc_auc_list, accuracys, recalls, precisions, fscores)
+    return main_metric
+
 def cal_evaluation(bag_labels, pred_labels):
     n_classes = max(bag_labels)+1
     accuracy = accuracy_score(bag_labels, pred_labels)
@@ -293,7 +403,7 @@ def prettytable_to_dataframe(pt):
 
 from typing import List, Union, Any
 
-def save_metrics_to_excel(roc_auc: List[float], accuracies: List[float], recalls: List[float], 
+def save_metrics_to_excel(roc_auc: List[float], accuracys: List[float], recalls: List[float], 
                           precisions: List[float], fscores: List[float], thresholds: List[float], 
                           confusion_matrix: Any, class_labels: List[str], writer):
     """
@@ -301,7 +411,7 @@ def save_metrics_to_excel(roc_auc: List[float], accuracies: List[float], recalls
     
     参数：
         roc_auc (list): 每个阳性类别的AUC值。
-        accuracies (list): 包含多分类（或二分类）准确率。
+        accuracys (list): 包含多分类（或二分类）准确率。
         recalls (list): 每个阳性类别的召回率。
         precisions (list): 每个阳性类别的精确率。
         fscores (list): 每个阳性类别的F1分数。
@@ -318,7 +428,7 @@ def save_metrics_to_excel(roc_auc: List[float], accuracies: List[float], recalls
     recalls_p = [round(recall * 100, 2) for recall in recalls]
     precisions_p = [round(precision * 100, 2) for precision in precisions]
     fscores_p = [round(fscore * 100, 2) for fscore in fscores]
-    accuracies_p = [round(acc * 100, 2) for acc in accuracies]
+    accuracys_p = [round(acc * 100, 2) for acc in accuracys]
     if thresholds:
         thresholds_p = [round(threshold, 2) for threshold in thresholds]
     else:
@@ -349,8 +459,8 @@ def save_metrics_to_excel(roc_auc: List[float], accuracies: List[float], recalls
         avg_recall = round(np.mean(recalls_p), 2)
         avg_precision = round(np.mean(precisions_p), 2)
         avg_fscore = round(np.mean(fscores_p), 2)
-        # 假设 accuracies[0] 是总准确率
-        total_accuracy = accuracies_p[0] if accuracies_p else '-' 
+        # 假设 accuracys[0] 是总准确率
+        total_accuracy = accuracys_p[0] if accuracys_p else '-' 
         # 根据模式调整行名
         row_name = "Binary (Pos vs Neg)" if is_binary else "Macro Average (Pos Classes)"
         

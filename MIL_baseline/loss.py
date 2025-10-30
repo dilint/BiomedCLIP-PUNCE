@@ -352,14 +352,14 @@ class BuildClsLoss(nn.Module):
         self.criterion = criterion
         self.args = args
         
-    def forward(self, train_logits, label):
+    def forward(self, train_logits, label, num_classes):
         args = self.args
         criterion = self.criterion
         batch_size = train_logits.shape[0]
-        if self.args.multi_label:
+        if self.args.multi_label and 'gc' in self.args.datasets and num_classes == 6:
             label_onehot = torch.tensor([id2labelcode[item.item()] for item in label], device=train_logits.device)
         else:
-            label_onehot = one_hot(label, num_classes=args.num_classes).float()
+            label_onehot = one_hot(label, num_classes=num_classes).float()
         if args.loss in ['ce']:
             logit_loss = criterion(train_logits.view(batch_size,-1),label)
         elif args.loss in ['bce', 'softbce', 'ranking', 'focal', 'asl']:

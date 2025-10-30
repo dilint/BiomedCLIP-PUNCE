@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -x
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=0
 
 # K=4 # 4 8 16 32
 # ratio=0.1
 # min=20
 dataset=gc_20k # gc_10k gc_30k gc_v15 gc_2625
 mil_method=vit_nc25 # transmil abmil wsi_vit vit_nc25
-patch_drop=0
-patch_pad=0
+patch_drop=1
+patch_pad=1
 weight=1.
 batch_size=1 # 32 1
 epoch=15
@@ -28,7 +28,7 @@ python main_binary.py --batch_size ${batch_size} --lr ${lr} --num_epoch ${epoch}
     --mil_method ${mil_method} \
     --loss ${loss} \
     --multi_label ${multi_label} \
-    --project "test${dataset}/10.20" \
+    --project "test${dataset}/10.29" \
     --world_size ${world_size} \
     --lr_sche ${lr_sche} \
     --balanced_sampling ${balanced_sampling} \

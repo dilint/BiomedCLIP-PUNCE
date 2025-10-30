@@ -237,13 +237,15 @@ def run_training_process(rank, world_size, args,
                 param.requires_grad_(False)
     
     criterions = {
-        'cls': BuildClsLoss(args),
+        'coarse_cls': BuildClsLoss(args),
+        'fine_cls': BuildClsLoss(args),
         # 'com': CompactnessLoss() # 假设 CompactnessLoss 不需要特殊参数
     }
     
     # 'validation_loop' 也不使用 'loss_weights'，但为保持一致性，我们保留
     loss_weights = {
-        'cls': 1.0, # 主要的分类损失权重通常为 1
+        'coarse_cls': 1.0, # 主要的分类损失权重通常为 1
+        'fine_cls': 1.0, # 主要的分类损失权重通常为 1
         # 'com': args.com_loss_weight
     }
     
@@ -480,19 +482,13 @@ def parse_args():
         args.train_cluster_path = None
     args.memory_limit_ratio = 0
 
-    if args.mil_method == 'hmil':
+    if 'gc' in args.datasets:
         args.num_classes = [2, 6] 
         args.mapping = "0:0, 1:1, 2:1, 3:1, 4:1, 5:1"
         args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
+        args.coarse_class_labels = ['neg', 'pos']
         args.memory_limit_ratio = 0
         args.n_class = args.num_classes 
-        
-    else:
-        if args.num_classes == 2:
-            args.class_labels = ['Normal', 'Abnormal']
-        else:
-            args.class_labels = ['nilm', 'ascus', 'asch', 'lsil', 'hsil', 'agc']
-            args.memory_limit_ratio = 0
     
     # 设定输出路径
     args.model_path = os.path.join(args.output_path, args.project, args.title)
