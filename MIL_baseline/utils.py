@@ -97,14 +97,10 @@ def optimal_thresh(fpr, tpr, thresholds, p=0):
     idx = np.argmin(loss, axis=0)
     return fpr[idx], tpr[idx], loss[idx], thresholds[idx]
 
-def evaluation_cancer_sigmoid(bag_labels, pred_logits, class_labels, output_path):
+def get_preds_from_softmax_logits(bag_labels, pred_logits, n_cancer_class):
     """
-    参数：
-        bag_labels (list or np.array): [N], 真实标签 (1D 整数标签)
-        pred_logits (tensor or np.array): [N, num_class], 每个样本的类别概率
-        class_labels (list): 类别标签
-        output_path (str): Excel 保存路径
-    ...
+    从 Softmax Logits (机率) 获取 1D 预测标签和 ROC。
+    返回: pred_labels (1D), roc_auc_list, thresholds_list (None)
     """
     id2labelcode = {
         0: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -115,117 +111,7 @@ def evaluation_cancer_sigmoid(bag_labels, pred_logits, class_labels, output_path
         5: [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
     }
     
-    bag_labels = np.array(bag_labels) 
-    bag_logits = np.array(pred_logits)
-    
-    bag_labels_cancer, bag_logits_cancer, class_labels_cancer = bag_labels, bag_logits, class_labels
-
-    roc_auc = []
-    thresholds = []
-    n_cancer_class = len(class_labels_cancer)
-    
-    bag_labels_cancer_onehot = np.array([id2labelcode[l] for l in bag_labels_cancer])
-    bag_pred_cancer_onehot = np.zeros_like(bag_logits_cancer)
-
-    threshold_neg = 0.5
-    for i in range(n_cancer_class):
-        precision_pr, recall_pr, thresholds_pr = precision_recall_curve(bag_labels_cancer_onehot[:, i], bag_logits_cancer[:, i])
-        f1_scores_pr = 2 * (precision_pr * recall_pr) / (precision_pr + recall_pr + 1e-10)
-        f1_scores_pr = np.nan_to_num(f1_scores_pr)
-        best_idx = np.argmax(f1_scores_pr)
-        threshold_optimal = thresholds_pr[best_idx]
-        best_f1 = f1_scores_pr[best_idx]
-        print(i, best_idx, best_f1, threshold_optimal)
-        if i == 0:
-            threshold_neg = threshold_optimal
-            continue
-        thresholds.append(threshold_optimal)
-        roc_auc.append(roc_auc_score(bag_labels_cancer_onehot[:, i], bag_logits_cancer[:, i]))
-        bag_pred_cancer_onehot[:, i] = bag_logits_cancer[:, i] >= threshold_optimal
-    
-    for j in range(bag_pred_cancer_onehot.shape[0]):
-        if np.sum(bag_pred_cancer_onehot[j]) > 1:
-            rank=[0,2,1,3,4]
-            indices = np.where(bag_pred_cancer_onehot[j, 1:] == 1)[0]
-            bag_pred_cancer_onehot[j] = 0
-            if len(indices) > 0:
-                selected_index = max(indices, key=lambda x: rank[x])
-                bag_pred_cancer_onehot[j, selected_index+1] = 1
-        elif np.sum(bag_pred_cancer_onehot[j]) == 0:
-            if bag_logits_cancer[j, 0] > threshold_neg:
-                bag_pred_cancer_onehot[j, 0] = 1
-            else:
-                max_logit_index = np.argmax(bag_logits_cancer[j,1:]) 
-                bag_pred_cancer_onehot[j, max_logit_index+1] = 1 
-                
-    bag_pred_cancer = np.argmax(bag_pred_cancer_onehot, axis=-1)
-    
-    accuracys, recalls, precisions, fscores = cal_evaluation(bag_labels_cancer, bag_pred_cancer)
-    print('[INFO] confusion matrix for cancer labels:')
-    cancer_matrix = confusion_matrix(bag_labels_cancer, bag_pred_cancer, class_labels_cancer)
-
-    gt_binary = np.where(bag_labels_cancer != 0, 1, 0)
-    pred_binary = np.where(bag_pred_cancer != 0, 1, 0)
-    accuracys_bi, recalls_bi, precisions_bi, fscores_bi = cal_evaluation(gt_binary, pred_binary)
-    cancer_matrix_bi = confusion_matrix(gt_binary, pred_binary, ['neg', 'pos'])
-    roc_bi = roc_auc_score(1-gt_binary, bag_logits_cancer[:, 0])
-    try:
-        with pd.ExcelWriter(output_path) as writer:
-            save_metrics_to_excel(roc_auc, accuracys, recalls, precisions, fscores, thresholds, cancer_matrix, class_labels, writer)
-            save_metrics_to_excel([roc_bi], accuracys_bi, recalls_bi, precisions_bi, fscores_bi, [threshold_neg], cancer_matrix_bi, ['neg', 'pos'], writer)
-        print(f"Metrics and confusion matrix saved to {output_path}")
-    except Exception as e:
-        print(f"Error saving to Excel file {output_path}: {e}")
-    print('roc', 'acc', 'recall', 'prec', 'fs')
-    print(roc_auc, accuracys, recalls, precisions, fscores)
-    return roc_bi
-
-def evaluation_cancer_softmax(bag_labels, pred_logits, class_labels, output_path):
-    """
-    参数：
-        bag_labels (list or np.array): [N], 真实标签 (1D 整数标签)
-        pred_logits (tensor or np.array): [N, num_class], 每个样本的类别概率
-        class_labels (list): 类别标签
-        output_path (str): Excel 保存路径
-    ...
-    """
-    assert len(class_labels) == 6 or len(class_labels) == 5 or len(class_labels) == 2
-    bag_labels = np.array(bag_labels)
-    pred_logits = np.array(pred_logits)
-    pred_labels = np.argmax(pred_logits, axis=1)
-    n_cancer_class = pred_logits.shape[1] 
-    if len(class_labels) != n_cancer_class:
-        class_labels = class_labels[:n_cancer_class]
-
-    one_hot_gt = np.eye(n_cancer_class)[bag_labels]
-    
-    roc_auc, thresholds = [], []
-    for i in range(1, n_cancer_class):
-        roc_auc.append(roc_auc_score(one_hot_gt[:, i], pred_logits[:, i]))
-        thresholds.append(0)
-
-    accuracys, recalls, precisions, fscores = cal_evaluation(bag_labels, pred_labels)
-    print('[INFO] confusion matrix for cancer labels:')
-    cancer_matrix = confusion_matrix(bag_labels, pred_labels, class_labels)
-    
-    try:
-        with pd.ExcelWriter(output_path) as writer:
-            save_metrics_to_excel(roc_auc, accuracys, recalls, precisions, fscores, None, cancer_matrix, class_labels, writer)
-        print(f"Metrics and confusion matrix saved to {output_path}")
-    except Exception as e:
-        print(f"Error saving to Excel file {output_path}: {e}")
-    if len(roc_auc) > 0:
-        main_metric = sum(np.nan_to_num(roc_auc)) / len(roc_auc)
-    else:
-        main_metric = 0.5
-    return main_metric
-
-def get_preds_from_softmax_logits(bag_labels, pred_logits, n_cancer_class):
-    """
-    从 Softmax Logits (机率) 获取 1D 预测标签和 ROC。
-    返回: pred_labels (1D), roc_auc_list, thresholds_list (None)
-    """
-    pred_labels = np.argmax(pred_logits, axis=1)
+    bag_labels_cancer_onehot = np.array([id2labelcode[l] for l in bag_labels])
     one_hot_gt = np.eye(n_cancer_class)[bag_labels]
     
     roc_auc_list = []

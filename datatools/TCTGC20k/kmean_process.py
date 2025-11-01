@@ -51,7 +51,7 @@ def main():
     input_path = '/data/wsi/TCTGC50k-features/gigapath-coarse/pt'
     input_label = '/data/wsi/TCTGC10k-labels/6_labels/TCTGC20k-v15-train.csv'
     labels = pd.read_csv(input_label)
-    n_clusters = 5
+    n_clusters = 10
     output_path = './cluster'
     os.makedirs(output_path, exist_ok=True)
     

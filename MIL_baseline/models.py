@@ -29,9 +29,11 @@ class MIL(nn.Module):
         return self.online_encoder(x)
     
 class Valina_MIL(nn.Module):
-    def __init__(self, input_dim=1024, mlp_dim=512,n_classes=2,mil='abmil',dropout=0.25,head=8,act='gelu'):
+    def __init__(self, input_dim=1024, mlp_dim=512,n_classes=2,mil='abmil',
+                 dropout=0.25,head=8,act='gelu',target_weight=None):
         super(Valina_MIL, self).__init__()
         self.patch_to_emb = [nn.Linear(input_dim, mlp_dim)]
+        self.register_buffer('target_weight', target_weight)
         
         if act.lower() == 'relu':
             self.patch_to_emb += [nn.ReLU()]
@@ -61,8 +63,9 @@ class Valina_MIL(nn.Module):
 
         self.predictor1 = nn.Linear(mlp_dim,n_classes[0])
         self.predictor2 = nn.Linear(mlp_dim,n_classes[1])
-
-    def forward(self, x, return_attn=False, return_feat=False):
+        
+        
+    def forward(self, x, return_attn=False):
         x = self.patch_to_emb(x)
         x = self.dp(x)
         # ps = x.size(1)
@@ -74,11 +77,16 @@ class Valina_MIL(nn.Module):
 
         prob1 = self.predictor1(x)
         prob2 = self.predictor2(x)
-
+        gh_proj = None
+        if self.target_weight is not None:
+            gh_proj = torch.matmul(x, self.target_weight.t())
+            
         if return_attn:
-            return prob1, prob2, attn
-        elif return_feat:
-            return prob1, prob2, x
+            return prob1, prob2, gh_proj, attn
         else:
-            return prob1, prob2
+            if self.target_weight is not None:
+                return prob1, prob2, gh_proj
+            else:
+                return prob1, prob2
+                
         

@@ -190,7 +190,7 @@ class C16DatasetTwoView(Dataset):
         """
         super(C16DatasetTwoView, self).__init__()
         self.file_name = file_name
-        self.slide_label = [int(_l) for _l in file_label]
+        self.slide_label = file_label
         self.size = len(self.file_name)
         self.root = root
         self.persistence = persistence

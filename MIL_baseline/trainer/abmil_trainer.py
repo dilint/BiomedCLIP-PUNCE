@@ -4,12 +4,9 @@ from timm.utils import AverageMeter, dispatch_clip_grad
 from timm.models import model_parameters
 from utils import (
     print_and_log, 
-    evaluation_cancer_sigmoid,
-    evaluation_cancer_softmax,
     save_logits,
     get_preds_from_sigmoid_logits,
     get_preds_from_softmax_logits,
-    parse_mapping,
     evaluation_cancer,
 )
 from torch.nn.functional import one_hot
