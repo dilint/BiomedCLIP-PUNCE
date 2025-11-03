@@ -84,9 +84,6 @@ class Valina_MIL(nn.Module):
         if return_attn:
             return prob1, prob2, gh_proj, attn
         else:
-            if self.target_weight is not None:
-                return prob1, prob2, gh_proj
-            else:
-                return prob1, prob2
+            return prob1, prob2, gh_proj
                 
         

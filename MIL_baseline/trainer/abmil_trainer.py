@@ -55,7 +55,7 @@ def abmil_training_loop(args, model, loader, optimizer, device, amp_autocast, cr
                         print_and_log(f"Batch {i} Sample Files: {list(map(lambda x: os.path.basename(x), file_path_list))}", args.log_file, args.no_log)
                         print_and_log(f"First Sample Shape: {bag.shape}", args.log_file, args.no_log)
                 
-                logits_coarse_sample, logits_fine_sample = model(bag)
+                logits_coarse_sample, logits_fine_sample, _ = model(bag)
                 
                 batch_logits_coarse_list.append(logits_coarse_sample)
                 batch_logits_fine_list.append(logits_fine_sample)
@@ -127,7 +127,7 @@ def abmil_validation_loop(args, model, loader, device, criterions, val_set_name)
             label_fine = label_tuple[:, 1].to(device)
 
             batch_size = bag.size(0)
-            logits_coarse, logits_fine = model(bag)
+            logits_coarse, logits_fine, _ = model(bag)
             
             losses = {}
             if 'coarse_cls' in criterions:
