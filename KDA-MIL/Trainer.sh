@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 set -x
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=0
 
 # K=4 # 4 8 16 32
 # ratio=0.1
 # min=20
 dataset=gc_20k # gc_10k gc_20k gc_v15 gc_2625
-mil_method=vit_nc25 # hmil abmil transmil vit_nc25 hmil
+mil_method=transmil # hmil abmil transmil vit_nc25 hmil
 patch_drop=1
 patch_pad=1
 multi_label=1
 gh=1
 consistency_weight=0.01
-warmup_epoch=0
+warmup_epoch=50
 epoch=100
-batch_size=16 # 32 128
-loss=focal # ce bce focal aploss  
+batch_size=6 # 4 16 128
+loss=bce # ce bce focal aploss  
 frozen=0
 world_size=1 # 4 1
 lr_sche=cosine # cosine cycle
