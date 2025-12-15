@@ -18,3 +18,4 @@ wsi_cell_num.txt
 log.txt
 cluster
 *.npy
+best_x7_20240822.onnx

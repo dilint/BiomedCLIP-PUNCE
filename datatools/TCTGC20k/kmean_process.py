@@ -48,8 +48,8 @@ def process_wsi(wsi_name, input_path, n_clusters):
 # --- 主函数 ---
 def main():
     # --- 配置 ---
-    input_path = '/data/wsi/TCTGC50k-features/gigapath-coarse/pt'
-    input_label = '/data/wsi/TCTGC10k-labels/6_labels/TCTGC20k-v15-train.csv'
+    input_path = '/data/wsi/BRACS-process/gigapath-features/pt_files'
+    input_label = '/home/huangjialong/projects/mil_baseline/datasets/bracs-7.csv'
     labels = pd.read_csv(input_label)
     n_clusters = 10
     output_path = './cluster'
