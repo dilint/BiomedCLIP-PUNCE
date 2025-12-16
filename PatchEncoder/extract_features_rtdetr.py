@@ -149,7 +149,7 @@ def main():
     # inference options 
     parser.add_argument('--multi_gpu', action='store_true', default=False)
     parser.add_argument('--batch_size', type=int, default=4)
-    parser.add_argument('--num_workers', type=int, default=4)
+    parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--world_size', type=int, default=1)
     parser.add_argument('--target_patch_size', type=int, nargs='+', default=(1280, 1280))
