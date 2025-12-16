@@ -1,6 +1,6 @@
 # RTDETR提取特征
 ## Prepare
-1. 获得*RTDETR onnx推理模型文件
+1. 获得RTDETR onnx推理模型文件
 
 2. 环境安装
 ```bash
