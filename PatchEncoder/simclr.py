@@ -18,7 +18,7 @@ from torchvision import transforms
 # from torchinfo import summary
 
 from models.model_simclr import SimCLR, SimCLR_custome
-from models.model_backbone import ResnetBackbone, BiomedclipBackbone, ClipBackbone, PlipBackbone, CustomeVitBase
+from models.model_backbone import ResnetBackbone, BiomedclipBackbone, ClipBackbone, PlipBackbone, CustomeVitBase, GigapathBackbone
 from models.model_adapter import LinearAdapter
 from utils.utils import seed_torch
 
@@ -294,6 +294,9 @@ def train(args) -> None:
     elif args.backbone == 'vitB':
         backbone = CustomeVitBase()
         input_dim = 512
+    elif args.backbone == 'gigapath':
+        backbone = GigapathBackbone()
+        input_dim = 1536
     preprocess_val = backbone.preprocess_val
     
     train_transform = transforms.Compose([transforms.RandomResizedCrop(224),
