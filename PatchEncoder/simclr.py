@@ -130,7 +130,7 @@ class Whole_Slide_Patchs_Tct(Dataset):
         else:
             sub_paths = GC_SUB_PATHS            
         data_roots = list(map(lambda x: os.path.join(data_dir, x), sub_paths)) 
-        if dataset == 'fnac':
+        if dataset == 'fnac' or 'gc20k' or 'bracs':
             data_roots = [data_dir]
         wsi_dirs = []
         train_wsi_lists = []
@@ -363,7 +363,7 @@ def train(args) -> None:
     # print(model)
     
     if args.ddp:
-        model = nn.parallel.DistributedDataParallel(model)
+        model = nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank])
         
     optimizer = torch.optim.SGD(
         model.parameters(),
@@ -435,6 +435,17 @@ def train(args) -> None:
                             "pretrain/train_loss": loss_meter.avg
                         }
                     )
+                    
+        # ============================================================
+        # 【新增逻辑】：将当前 epoch 的平均 Loss 记录到本地 txt 文件中
+        # ============================================================
+        if args.ddp and args.local_rank != 0:
+            pass
+        else:
+            log_file = os.path.join(args.model_path, "loss_log.txt")
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(f"Epoch: {epoch}, SimCLR Loss: {loss_meter.avg:.4f}\n")
+        # ============================================================
             
         # save checkpoint very log_interval epochs
         if args.ddp and args.local_rank != 0:
@@ -462,14 +473,14 @@ if __name__ == '__main__':
     
     parser.add_argument('--auto_resume', action='store_true', help='automatically resume training')
     # dataset
-    parser.add_argument('--dataset', type=str, default='gc', choices=['cifar10', 'ngc', 'gc', 'fnac'])
+    parser.add_argument('--dataset', type=str, default='gc', choices=['cifar10', 'ngc', 'gc', 'gc20k', 'fnac', 'bracs'])
     parser.add_argument('--load_cpu', action='store_true')
     parser.add_argument('--data_dir', type=str, default='/home1/wsi/gc-filter/filter-images/biomed1-meanmil')
     parser.add_argument('--train_label_path', type=str, default='../datatools/TCTGC2625/labels/train_label.csv')
     # parser.add_argument('--target_patch_size', type=int, nargs='+', default=(1333, 800))
     
     # model
-    parser.add_argument('--backbone', type=str, default='vitB', choices=['resnet50', 'biomedclip', 'resnet18', 'resnet34', 'plip', 'clip', 'vitB'])
+    parser.add_argument('--backbone', type=str, default='vitB', choices=['resnet50', 'biomedclip', 'resnet18', 'resnet34', 'plip', 'gigapath','clip', 'vitB'])
     parser.add_argument('--without_head', action='store_true')
     parser.add_argument('--not_frozen', type=float, default=0)
     # parser.add_argument('--proj_hidden_dim', default=128, type=int, help='dimension of projected features')
@@ -479,7 +490,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', default=16, type=int)
     parser.add_argument('--workers', default=0, type=int)
     parser.add_argument('--epochs', default=200, type=int)
-    parser.add_argument('--log_interval', default=10, type=int)
+    parser.add_argument('--log_interval', default=1, type=int)
     
     # loss options
     parser.add_argument('--loss_function', default='infonce', type=str, choices=['infonce', 'punce'])
@@ -506,8 +517,11 @@ if __name__ == '__main__':
     os.makedirs(args.model_path, exist_ok=True)
     
     if args.ddp:
+        # 兼容 torchrun 的环境变量读取方式
+        if args.local_rank is None:
+            args.local_rank = int(os.environ.get("LOCAL_RANK", 0))
         torch.cuda.set_device(args.local_rank) 
-        torch.distributed.init_process_group(backend='nccl')    
+        torch.distributed.init_process_group(backend='nccl')
     
     if args.ddp and args.local_rank != 0:
         pass
